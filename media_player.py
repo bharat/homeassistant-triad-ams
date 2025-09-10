@@ -27,15 +27,13 @@ async def async_setup_entry(
     """Set up Triad AMS media player entities from a config entry."""
     coordinator: TriadAmsCoordinator = entry.runtime_data
     entities = [
-        TriadAmsOutputMediaPlayer(coordinator, output)
+        TriadAmsMediaPlayer(coordinator, output)
         for output in coordinator.data.get("outputs", [])
     ]
     async_add_entities(entities)
 
 
-class TriadAmsOutputMediaPlayer(
-    CoordinatorEntity[TriadAmsCoordinator], MediaPlayerEntity
-):
+class TriadAmsMediaPlayer(CoordinatorEntity[TriadAmsCoordinator], MediaPlayerEntity):
     """Media player entity representing a Triad AMS output."""
 
     _attr_supported_features = (

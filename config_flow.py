@@ -8,7 +8,6 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_entry_flow
 
 from .const import DOMAIN
 
@@ -46,7 +45,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Handle the initial step (manual entry)."""
+        """Always allow manual entry of host and port."""
         errors = {}
         if user_input is not None:
             self._host = user_input["host"]
@@ -54,12 +53,13 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # TODO: Optionally test connection here
             return await self.async_step_names()
 
+        # Always show the manual entry form, regardless of discovery
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
                     vol.Required("host"): str,
-                    vol.Required("port", default=5000): int,
+                    vol.Required("port", default=52000): int,
                 }
             ),
             errors=errors,
@@ -96,7 +96,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: config_entries.SsdpServiceInfo
     ) -> config_entries.ConfigFlowResult:
         """Handle SSDP discovery (placeholder, not implemented)."""
-        # TODO: Implement SDDP/SSDP discovery if possible
+        # Always allow fallback to manual entry
         return await self.async_step_user()
 
     @staticmethod
@@ -113,7 +113,6 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize the options flow handler for Triad AMS."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -148,6 +147,3 @@ async def _async_has_devices(hass: HomeAssistant) -> bool:
     # devices = await hass.async_add_executor_job(discover_devices)
     devices = []  # Placeholder: No discovery implemented yet
     return len(devices) > 0
-
-
-config_entry_flow.register_discovery_flow(DOMAIN, "Triad AMS", _async_has_devices)

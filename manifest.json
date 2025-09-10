@@ -8,5 +8,6 @@
   "documentation": "https://www.home-assistant.io/integrations/triad_ams",
   "iot_class": "local_polling",
   "quality_scale": "bronze",
-  "requirements": []
+  "requirements": [],
+  "version": "2025.9.10"
 }
