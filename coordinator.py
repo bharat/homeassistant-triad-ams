@@ -2,9 +2,11 @@
 
 from datetime import timedelta
 import logging
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.core import HomeAssistant
+
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
 from .const import DOMAIN
 from .helper import TriadAmsClient
 
@@ -17,6 +19,13 @@ class TriadAmsCoordinator(DataUpdateCoordinator):
     def __init__(
         self, hass: HomeAssistant, client: TriadAmsClient, config_entry: ConfigEntry
     ) -> None:
+        """Initialize the Triad AMS coordinator.
+
+        Args:
+            hass: The Home Assistant instance.
+            client: The Triad AMS client for device communication.
+            config_entry: The config entry for this integration.
+        """
         super().__init__(
             hass,
             logger=_LOGGER,

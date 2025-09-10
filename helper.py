@@ -1,9 +1,7 @@
 """Helper for communicating with Triad AMS switches."""
 
-
 import asyncio
 import logging
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,9 +46,11 @@ class TriadAmsClient:
     async def async_set_output(self, output: int, on: bool) -> None:
         """Set the power state of an output channel."""
         # Placeholder: implement actual command
+
     # Implementation needed
 
     async def async_set_volume(self, output: int, volume: float) -> None:
         """Set the volume for an output channel."""
         # Placeholder: implement actual command
+
     # Implementation needed

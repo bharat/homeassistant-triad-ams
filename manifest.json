@@ -5,12 +5,8 @@
     "@bharat"
   ],
   "config_flow": true,
-  "dependencies": [],
   "documentation": "https://www.home-assistant.io/integrations/triad_ams",
-  "homekit": {},
   "iot_class": "local_polling",
   "quality_scale": "bronze",
-  "requirements": [],
-  "ssdp": [],
-  "zeroconf": []
+  "requirements": []
 }
