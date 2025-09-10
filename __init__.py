@@ -8,8 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .coordinator import TriadAmsCoordinator
-from .helper import TriadAmsClient
+from .connection import TriadConnection
 
 PLATFORMS = ["media_player"]
 
@@ -26,10 +25,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get connection info from entry
     host = entry.data["host"]
     port = entry.data["port"]
-    client = TriadAmsClient(host, port)
-    coordinator = TriadAmsCoordinator(hass, client, entry)
-    await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = coordinator
+    connection = TriadConnection(host, port)
+    entry.runtime_data = connection
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -38,6 +35,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinator: TriadAmsCoordinator = entry.runtime_data
-        await coordinator.client.async_disconnect()
+        connection: TriadConnection = entry.runtime_data
+        await connection.disconnect()
     return unload_ok
