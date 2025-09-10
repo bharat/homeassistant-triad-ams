@@ -1,3 +1,110 @@
+"""Config flow for Triad AMS integration."""
+from __future__ import annotations
+from typing import Any
+import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+from .const import DOMAIN
+
+INPUT_COUNT = 8
+OUTPUT_COUNT = 8
+
+def _input_output_schema(inputs: list[str] | None = None, outputs: list[str] | None = None) -> vol.Schema:
+    """Return schema for input/output names."""
+    inputs = inputs or [f"Input {i+1}" for i in range(INPUT_COUNT)]
+    outputs = outputs or [f"Output {i+1}" for i in range(OUTPUT_COUNT)]
+    schema_dict = {}
+    for i in range(INPUT_COUNT):
+        schema_dict[vol.Required(f"input_{i+1}", default=inputs[i])]=str
+    for i in range(OUTPUT_COUNT):
+        schema_dict[vol.Required(f"output_{i+1}", default=outputs[i])]=str
+    return vol.Schema(schema_dict)
+
+class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Triad AMS."""
+
+    VERSION = 1
+    MINOR_VERSION = 1
+
+    def __init__(self) -> None:
+        self._host: str | None = None
+        self._port: int | None = None
+        self._input_names: list[str] = []
+        self._output_names: list[str] = []
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Handle the initial step (manual entry)."""
+        errors = {}
+        if user_input is not None:
+            self._host = user_input["host"]
+            self._port = user_input["port"]
+            # TODO: Optionally test connection here
+            return await self.async_step_names()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required("host"): str,
+                vol.Required("port", default=5000): int,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_names(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Configure friendly names for inputs and outputs."""
+        errors = {}
+        if user_input is not None:
+            self._input_names = [user_input[f"input_{i+1}"] for i in range(INPUT_COUNT)]
+            self._output_names = [user_input[f"output_{i+1}"] for i in range(OUTPUT_COUNT)]
+            return self.async_create_entry(
+                title=f"Triad AMS {self._host}",
+                data={"host": self._host, "port": self._port},
+                options={
+                    "inputs": self._input_names,
+                    "outputs": self._output_names,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="names",
+            data_schema=_input_output_schema(),
+            errors=errors,
+        )
+
+    async def async_step_ssdp(self, discovery_info: dict[str, Any]) -> FlowResult:
+        """Handle SSDP discovery (placeholder, not implemented)."""
+        # TODO: Implement SDDP/SSDP discovery if possible
+        return await self.async_step_user()
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+        return TriadAmsOptionsFlowHandler(config_entry)
+
+class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options for Triad AMS."""
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Manage input/output names in options."""
+        if user_input is not None:
+            inputs = [user_input[f"input_{i+1}"] for i in range(INPUT_COUNT)]
+            outputs = [user_input[f"output_{i+1}"] for i in range(OUTPUT_COUNT)]
+            return self.async_create_entry(
+                data={
+                    "inputs": inputs,
+                    "outputs": outputs,
+                }
+            )
+        # Use current names as defaults
+        current_inputs = self.config_entry.options.get("inputs", [f"Input {i+1}" for i in range(INPUT_COUNT)])
+        current_outputs = self.config_entry.options.get("outputs", [f"Output {i+1}" for i in range(OUTPUT_COUNT)])
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_input_output_schema(current_inputs, current_outputs),
+        )
 """Config flow for the Triad AMS integration."""
 
 import my_pypi_dependency
