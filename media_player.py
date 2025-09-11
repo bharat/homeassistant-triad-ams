@@ -66,6 +66,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     _attr_supported_features = (
         MediaPlayerEntityFeature.TURN_OFF
+        | MediaPlayerEntityFeature.TURN_ON
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.SELECT_SOURCE
     )
@@ -130,3 +131,8 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
         await self.output.set_volume(volume)
+
+    async def async_turn_on(self) -> None:
+        """Turn on the player in UI without routing a source."""
+        await self.output.turn_on()
+        self.async_write_ha_state()
