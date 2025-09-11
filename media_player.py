@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
+    MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .connection import TriadConnection
+from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
 from .models import TriadAmsOutput
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,18 +27,38 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Triad AMS media player entities from a config entry."""
-    # For now, create outputs from config entry options
-    connection = hass.data.setdefault("triad_ams_connection", None)
+    _LOGGER.debug(
+        "async_setup_entry called for Triad AMS: entry_id=%s, data=%s, options=%s",
+        entry.entry_id,
+        entry.data,
+        entry.options,
+    )
+    # Use the connection attached by __init__.py in entry.runtime_data
+    connection: TriadConnection = entry.runtime_data
     if connection is None:
+        _LOGGER.debug(
+            "No runtime connection found; creating TriadConnection for host=%s, port=%s",
+            entry.data["host"],
+            entry.data["port"],
+        )
         connection = TriadConnection(entry.data["host"], entry.data["port"])
-        hass.data["triad_ams_connection"] = connection
-    output_names = entry.options.get("outputs", [f"Output {i + 1}" for i in range(8)])
-    outputs = [
-        TriadAmsOutput(i + 1, output_names[i], connection)
-        for i in range(len(output_names))
-    ]
-    entities = [TriadAmsMediaPlayer(output) for output in outputs]
+        entry.runtime_data = connection
+
+    inputs = entry.options.get("inputs", [f"Input {i + 1}" for i in range(INPUT_COUNT)])
+    output_names = entry.options.get(
+        "outputs", [f"Output {i + 1}" for i in range(OUTPUT_COUNT)]
+    )
+    outputs: list[TriadAmsOutput] = []
+    for idx, name in enumerate(output_names, start=1):
+        # Pass the same outputs list (mutable) and configured input names
+        outputs.append(TriadAmsOutput(idx, name, connection, outputs, inputs))
+
+    await asyncio.gather(*(output.refresh() for output in outputs))
+    entities = [TriadAmsMediaPlayer(output, entry.entry_id) for output in outputs]
     async_add_entities(entities)
+    _LOGGER.debug(
+        "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
+    )
 
 
 class TriadAmsMediaPlayer(MediaPlayerEntity):
@@ -46,6 +69,26 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.SELECT_SOURCE
     )
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(self, output: TriadAmsOutput, entry_id: str) -> None:
+        """Initialize a Triad AMS output media player entity."""
+        self.output = output
+        self._attr_unique_id = f"{entry_id}_output_{output.number}"
+        self._attr_name = None  # Use device name only for friendly name
+        self._attr_has_entity_name = True
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{entry_id}_output_{output.number}")},
+            "name": output.name,
+            "manufacturer": "Triad",
+            "model": "AMS Audio Matrix Switch",
+        }
+
+    @property
+    def state(self) -> str:
+        """Return the state of the entity (STATE_ON or STATE_OFF)."""
+        return MediaPlayerState.ON if self.is_on else MediaPlayerState.OFF
 
     @property
     def source(self) -> str | None:
@@ -66,29 +109,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         else:
             _LOGGER.error("Unknown source name: %s", source)
 
-    _attr_has_entity_name = True
-
-    def __init__(self, output: TriadAmsOutput) -> None:
-        """Initialize a Triad AMS output media player entity."""
-        self.output = output
-        self._attr_unique_id = f"triad_ams_output_{output.number}"
-        self._attr_name = None  # Use device name only for friendly name
-        self._attr_has_entity_name = True
-        self._attr_device_info = {
-            "identifiers": {("triad_ams", f"output_{output.number}")},
-            "name": output.name,
-            "manufacturer": "Triad",
-            "model": "AMS Audio Matrix Switch",
-        }
-
     async def async_added_to_hass(self) -> None:
-        """Refresh state from device when entity is added to Home Assistant."""
-        await self.output.refresh()
+        """Entity added to Home Assistant: write initial state."""
+        self.async_write_ha_state()
 
     @property
-    def is_on(self) -> bool | None:
-        """Return True if the output is on, or None if unknown."""
-        return self.output.is_on if self.output.is_on is not None else None
+    def is_on(self) -> bool:
+        """Return True if the output is on, False if off."""
+        return self.output.is_on
 
     @property
     def volume_level(self) -> float | None:

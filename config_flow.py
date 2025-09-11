@@ -42,8 +42,14 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Always allow manual entry of host and port."""
+        """Always allow manual entry of host and port.
+
+        Enforce single instance to avoid collisions in unique IDs.
+        """
         errors = {}
+        # Single instance guard
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
             self._host = user_input["host"]
             self._port = user_input["port"]

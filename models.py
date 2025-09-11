@@ -3,7 +3,7 @@
 import logging
 
 from .connection import TriadConnection
-from .const import INPUT_COUNT, OUTPUT_COUNT
+from .const import INPUT_COUNT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -11,16 +11,27 @@ _LOGGER = logging.getLogger(__name__)
 class TriadAmsOutput:
     """Represents and manages a single output channel on the Triad AMS."""
 
-    def __init__(self, number: int, name: str, connection: TriadConnection) -> None:
+    def __init__(
+        self,
+        number: int,
+        name: str,
+        connection: TriadConnection,
+        outputs: list["TriadAmsOutput"] | None = None,
+        input_names: list[str] | None = None,
+    ) -> None:
         """Initialize a Triad AMS output channel."""
         self.number = number  # 1-based output channel
         self.name = name
         self.connection = connection
         self._volume: float | None = None
         self._assigned_input: int | None = None  # None means off
-        # For now, just use 1-based input channels with generic names
-
-        self.input_names = {i + 1: f"Input {i + 1}" for i in range(INPUT_COUNT)}
+        if input_names and len(input_names) == INPUT_COUNT:
+            self.input_names = {i + 1: input_names[i] for i in range(INPUT_COUNT)}
+        else:
+            self.input_names = {i + 1: f"Input {i + 1}" for i in range(INPUT_COUNT)}
+        self._outputs = (
+            outputs  # Optional: reference to all outputs for trigger zone logic
+        )
 
     @property
     def source_name(self) -> str | None:
@@ -49,7 +60,11 @@ class TriadAmsOutput:
     async def set_source(self, input_id: int) -> None:
         """Set the output to the given input channel (1-based)."""
         try:
-            await self.connection.set_output_to_input(self.number - 1, input_id - 1)
+            # If all outputs are off, enable trigger zone first
+            if self._outputs and not any(o.is_on for o in self._outputs):
+                await self.connection.set_trigger_zone(True)
+            # Connection methods expect 1-based indices
+            await self.connection.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
         except OSError as err:
             _LOGGER.error("Failed to set source for output %d: %s", self.number, err)
@@ -77,6 +92,9 @@ class TriadAmsOutput:
         try:
             await self.connection.disconnect_output(self.number)
             self._assigned_input = None
+            # If this was the last output on, disable trigger zone
+            if self._outputs and not any(o.is_on for o in self._outputs):
+                await self.connection.set_trigger_zone(False)
         except OSError as err:
             _LOGGER.error("Failed to turn off output %d: %s", self.number, err)
 
@@ -85,7 +103,8 @@ class TriadAmsOutput:
         try:
             self._volume = await self.connection.get_output_volume(self.number)
             assigned_input = await self.connection.get_output_source(self.number)
-            if assigned_input is not None and assigned_input < OUTPUT_COUNT:
+            # assigned_input is 1-based; validate against INPUT_COUNT
+            if assigned_input is not None and 1 <= assigned_input <= INPUT_COUNT:
                 self._assigned_input = assigned_input
             else:
                 self._assigned_input = None
