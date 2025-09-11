@@ -82,14 +82,13 @@ class TriadConnection:
         Value: 0x00 (off) to 0xA1 (max)
         """
         capped = min(percentage, 0.8)
-        now = asyncio.get_event_loop().time()
+        loop = asyncio.get_event_loop()
+        now = loop.time()
         self._volume_debounce_values[output_channel] = capped
 
         async def _send():
             value = self._volume_debounce_values[output_channel]
-            self._volume_debounce_last_sent[output_channel] = (
-                asyncio.get_event_loop().time()
-            )
+            self._volume_debounce_last_sent[output_channel] = loop.time()
             val = int(value * 0xA1)
             val = max(0, min(val, 0xA1))
             cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
@@ -102,26 +101,29 @@ class TriadConnection:
                 resp,
             )
 
-        # Cancel any pending debounce task for this output
-        if (
-            task := self._volume_debounce_tasks.get(output_channel)
-        ) and not task.done():
-            task.cancel()
+        last_sent = self._volume_debounce_last_sent.get(output_channel, 0.0)
+        pending = self._volume_debounce_tasks.get(output_channel)
 
-        # If last sent was >500ms ago, send immediately
-        last_sent = self._volume_debounce_last_sent.get(output_channel, 0)
-        delay = max(0, 0.5 - (now - last_sent))
+        # If >=500ms since last send, send immediately and cancel any trailing task
+        if now - last_sent >= 0.5:
+            if pending and not pending.done():
+                pending.cancel()
+            self._volume_debounce_tasks[output_channel] = asyncio.create_task(_send())
+            return
 
-        async def debounce_task():
-            try:
-                await asyncio.sleep(delay)
-                await _send()
-            except asyncio.CancelledError:
-                pass
+        # Otherwise, schedule a trailing send at last_sent + 500ms if none pending
+        if not pending or pending.done():
+            send_at = last_sent + 0.5
+            delay = max(0.0, send_at - now)
 
-        self._volume_debounce_tasks[output_channel] = asyncio.create_task(
-            debounce_task()
-        )
+            async def trailing():
+                try:
+                    await asyncio.sleep(delay)
+                    await _send()
+                except asyncio.CancelledError:
+                    pass
+
+            self._volume_debounce_tasks[output_channel] = asyncio.create_task(trailing())
 
     async def get_output_volume(self, output_channel: int) -> float:
         """Get the volume for a specific output channel.
