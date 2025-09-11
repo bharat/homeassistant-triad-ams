@@ -25,6 +25,9 @@ class TriadAmsOutput:
         self.connection = connection
         self._volume: float | None = None
         self._assigned_input: int | None = None  # None = no routed source
+        # Tracks the most recent valid input assignment so we can restore it
+        # when the output is turned back on.
+        self._last_assigned_input: int | None = None
         self._ui_on: bool = False  # UI on/off independent of routed source
         if input_names and len(input_names) == INPUT_COUNT:
             self.input_names = {i + 1: input_names[i] for i in range(INPUT_COUNT)}
@@ -72,6 +75,8 @@ class TriadAmsOutput:
             # Connection methods expect 1-based indices
             await self.connection.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
+            # Remember this assignment so we can restore it later
+            self._last_assigned_input = input_id
             # Turning on (UI) implicitly when a source is routed
             self._ui_on = True
         except OSError as err:
@@ -98,6 +103,9 @@ class TriadAmsOutput:
     async def turn_off(self) -> None:
         """Turn off this output by disconnecting it from any input channel."""
         try:
+            # Preserve current assignment so we can restore it when turning back on
+            if self._assigned_input is not None:
+                self._last_assigned_input = self._assigned_input
             await self.connection.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
@@ -108,8 +116,11 @@ class TriadAmsOutput:
             _LOGGER.error("Failed to turn off output %d: %s", self.number, err)
 
     async def turn_on(self) -> None:
-        """Turn on the player in UI without routing any source."""
+        """Turn on the player and restore the previous source if known."""
         self._ui_on = True
+        # If we have a remembered input, restore it immediately
+        if self._last_assigned_input is not None:
+            await self.set_source(self._last_assigned_input)
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
@@ -119,6 +130,8 @@ class TriadAmsOutput:
             # assigned_input is 1-based; validate against INPUT_COUNT
             if assigned_input is not None and 1 <= assigned_input <= INPUT_COUNT:
                 self._assigned_input = assigned_input
+                # Keep last-known assignment in sync when a valid route exists
+                self._last_assigned_input = assigned_input
                 self._ui_on = True
             else:
                 self._assigned_input = None
