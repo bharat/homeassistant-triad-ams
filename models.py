@@ -17,7 +17,7 @@ class TriadAmsOutput:
         name: str,
         connection: TriadConnection,
         outputs: list["TriadAmsOutput"] | None = None,
-        input_names: list[str] | None = None,
+        input_names: dict[int, str] | None = None,
     ) -> None:
         """Initialize a Triad AMS output channel."""
         self.number = number  # 1-based output channel
@@ -29,8 +29,8 @@ class TriadAmsOutput:
         # when the output is turned back on.
         self._last_assigned_input: int | None = None
         self._ui_on: bool = False  # UI on/off independent of routed source
-        if input_names and len(input_names) == INPUT_COUNT:
-            self.input_names = {i + 1: input_names[i] for i in range(INPUT_COUNT)}
+        if input_names is not None:
+            self.input_names = dict(sorted(input_names.items()))
         else:
             self.input_names = {i + 1: f"Input {i + 1}" for i in range(INPUT_COUNT)}
         self._outputs = (

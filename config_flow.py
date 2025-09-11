@@ -1,4 +1,4 @@
-"""Config flow for Triad AMS integration."""
+"""Config flow for Triad AMS integration with flexible IO configuration."""
 
 from __future__ import annotations
 
@@ -8,36 +8,26 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
 
 
-def _input_output_schema(
-    inputs: list[str] | None = None, outputs: list[str] | None = None
-) -> vol.Schema:
-    """Return schema for input/output names."""
-    inputs = inputs or [f"Input {i + 1}" for i in range(INPUT_COUNT)]
-    outputs = outputs or [f"Output {i + 1}" for i in range(OUTPUT_COUNT)]
-    schema_dict = {}
-    for i in range(INPUT_COUNT):
-        schema_dict[vol.Required(f"input_{i + 1}", default=inputs[i])] = str
-    for i in range(OUTPUT_COUNT):
-        schema_dict[vol.Required(f"output_{i + 1}", default=outputs[i])] = str
-    return vol.Schema(schema_dict)
+def _channel_selector(max_ch: int) -> Any:
+    return selector({"select": {"options": [str(i) for i in range(1, max_ch + 1)]}})
 
 
 class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Triad AMS."""
 
     VERSION = 1
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
-        """Initialize the Triad AMS config flow."""
         self._host: str | None = None
         self._port: int | None = None
-        self._input_names: list[str] = []
-        self._output_names: list[str] = []
+        self._inputs: dict[int, dict[str, Any]] = {}
+        self._outputs: dict[int, dict[str, Any]] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -53,8 +43,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._host = user_input["host"]
             self._port = user_input["port"]
-            # TODO: Optionally test connection here
-            return await self.async_step_names()
+            return await self.async_step_config_menu()
 
         # Always show the manual entry form, regardless of discovery
         return self.async_show_form(
@@ -68,38 +57,104 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_names(
+    async def async_step_config_menu(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Configure friendly names for inputs and outputs."""
-        errors = {}
         if user_input is not None:
-            self._input_names = [
-                user_input[f"input_{i + 1}"] for i in range(INPUT_COUNT)
-            ]
-            self._output_names = [
-                user_input[f"output_{i + 1}"] for i in range(OUTPUT_COUNT)
-            ]
-            return self.async_create_entry(
-                title=f"Triad AMS {self._host}",
-                data={"host": self._host, "port": self._port},
-                options={
-                    "inputs": self._input_names,
-                    "outputs": self._output_names,
-                },
-            )
+            action = user_input["action"]
+            if action == "add_input":
+                return await self.async_step_add_input()
+            if action == "add_output":
+                return await self.async_step_add_output()
+            if action == "finish":
+                inputs_opt = {
+                    str(ch): {"name": data["name"], "link": data.get("link")}
+                    for ch, data in self._inputs.items()
+                }
+                outputs_opt = {
+                    str(ch): {"name": data["name"]} for ch, data in self._outputs.items()
+                }
+                return self.async_create_entry(
+                    title=f"Triad AMS {self._host}",
+                    data={"host": self._host, "port": self._port},
+                    options={
+                        "inputs_config": inputs_opt,
+                        "outputs_config": outputs_opt,
+                    },
+                )
 
         return self.async_show_form(
-            step_id="names",
-            data_schema=_input_output_schema(),
-            errors=errors,
+            step_id="config_menu",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "action",
+                        default="finish" if self._inputs or self._outputs else "add_input",
+                    ): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "add_input", "label": "Add input"},
+                                    {"value": "add_output", "label": "Add output"},
+                                    {"value": "finish", "label": "Finish"},
+                                ]
+                            }
+                        }
+                    )
+                }
+            ),
+        )
+
+    async def async_step_add_input(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            ch = int(user_input["channel"])
+            name = user_input["name"]
+            link = user_input.get("link")
+            self._inputs[ch] = {"name": name, "link": link}
+            return await self.async_step_config_menu()
+        default_channel = next((str(i) for i in range(1, INPUT_COUNT + 1) if i not in self._inputs), "1")
+        default_name = f"Input {default_channel}"
+        return self.async_show_form(
+            step_id="add_input",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("channel", default=default_channel): _channel_selector(
+                        INPUT_COUNT
+                    ),
+                    vol.Required("name", default=default_name): str,
+                    vol.Optional("link"): selector({"entity": {"domain": "media_player"}}),
+                }
+            ),
+        )
+
+    async def async_step_add_output(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            ch = int(user_input["channel"])
+            name = user_input["name"]
+            self._outputs[ch] = {"name": name}
+            return await self.async_step_config_menu()
+        default_channel = next((str(i) for i in range(1, OUTPUT_COUNT + 1) if i not in self._outputs), "1")
+        default_name = f"Output {default_channel}"
+        return self.async_show_form(
+            step_id="add_output",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("channel", default=default_channel): _channel_selector(
+                        OUTPUT_COUNT
+                    ),
+                    vol.Required("name", default=default_name): str,
+                }
+            ),
         )
 
     async def async_step_ssdp(
         self, discovery_info: config_entries.SsdpServiceInfo
     ) -> config_entries.ConfigFlowResult:
         """Handle SSDP discovery (placeholder, not implemented)."""
-        # Always allow fallback to manual entry
         return await self.async_step_user()
 
     @staticmethod
@@ -112,41 +167,99 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options for Triad AMS."""
+    """Handle options for Triad AMS: add inputs/outputs and save."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize the options flow handler for Triad AMS."""
+        self.config_entry = config_entry
+        self._inputs = {
+            int(k): v for k, v in config_entry.options.get("inputs_config", {}).items()
+        }
+        self._outputs = {
+            int(k): v for k, v in config_entry.options.get("outputs_config", {}).items()
+        }
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Manage input/output names in options."""
         if user_input is not None:
-            inputs = [user_input[f"input_{i + 1}"] for i in range(INPUT_COUNT)]
-            outputs = [user_input[f"output_{i + 1}"] for i in range(OUTPUT_COUNT)]
-            return self.async_create_entry(
-                data={
-                    "inputs": inputs,
-                    "outputs": outputs,
-                }
-            )
-        # Use current names as defaults
-        current_inputs = self.config_entry.options.get(
-            "inputs", [f"Input {i + 1}" for i in range(INPUT_COUNT)]
-        )
-        current_outputs = self.config_entry.options.get(
-            "outputs", [f"Output {i + 1}" for i in range(OUTPUT_COUNT)]
-        )
+            action = user_input["action"]
+            if action == "add_input":
+                return await self.async_step_add_input()
+            if action == "add_output":
+                return await self.async_step_add_output()
+            if action == "save":
+                return self.async_create_entry(
+                    data={
+                        "inputs_config": {str(k): v for k, v in self._inputs.items()},
+                        "outputs_config": {str(k): v for k, v in self._outputs.items()},
+                    }
+                )
         return self.async_show_form(
             step_id="init",
-            data_schema=_input_output_schema(current_inputs, current_outputs),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("action", default="save"): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "add_input", "label": "Add input"},
+                                    {"value": "add_output", "label": "Add output"},
+                                    {"value": "save", "label": "Save"},
+                                ]
+                            }
+                        }
+                    )
+                }
+            ),
+        )
+
+    async def async_step_add_input(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            ch = int(user_input["channel"])
+            name = user_input["name"]
+            link = user_input.get("link")
+            self._inputs[ch] = {"name": name, "link": link}
+            return await self.async_step_init()
+        default_channel = next((str(i) for i in range(1, INPUT_COUNT + 1) if i not in self._inputs), "1")
+        default_name = f"Input {default_channel}"
+        return self.async_show_form(
+            step_id="add_input",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("channel", default=default_channel): _channel_selector(
+                        INPUT_COUNT
+                    ),
+                    vol.Required("name", default=default_name): str,
+                    vol.Optional("link"): selector({"entity": {"domain": "media_player"}}),
+                }
+            ),
+        )
+
+    async def async_step_add_output(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            ch = int(user_input["channel"])
+            name = user_input["name"]
+            self._outputs[ch] = {"name": name}
+            return await self.async_step_init()
+        default_channel = next((str(i) for i in range(1, OUTPUT_COUNT + 1) if i not in self._outputs), "1")
+        default_name = f"Output {default_channel}"
+        return self.async_show_form(
+            step_id="add_output",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("channel", default=default_channel): _channel_selector(
+                        OUTPUT_COUNT
+                    ),
+                    vol.Required("name", default=default_name): str,
+                }
+            ),
         )
 
 
 async def _async_has_devices(hass: HomeAssistant) -> bool:
-    """Return if there are devices that can be discovered."""
-    # TODO: Replace the following import and discovery logic with the actual dependency used for Triad AMS device discovery.
-    # from some_module import discover_devices
-    # devices = await hass.async_add_executor_job(discover_devices)
-    devices = []  # Placeholder: No discovery implemented yet
+    devices = []
     return len(devices) > 0
