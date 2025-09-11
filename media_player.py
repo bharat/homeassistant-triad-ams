@@ -127,6 +127,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_turn_off(self) -> None:
         """Turn off the output (disconnect from any input)."""
         await self.output.turn_off()
+        self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""

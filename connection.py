@@ -73,7 +73,7 @@ class TriadConnection:
             return response.decode(errors="replace").strip("\x00").strip()
 
     async def set_output_volume(self, output_channel: int, percentage: float) -> None:
-        """Set the volume for a specific output channel (debounced, capped at 20%).
+        """Set the volume for a specific output channel (debounced, capped at 50%).
 
         Args:
             output_channel: 1-based output channel index.
@@ -81,7 +81,7 @@ class TriadConnection:
         Command: FF 55 04 03 1E <output> <value>  (output sent as 0-based)
         Value: 0x00 (off) to 0xA1 (max)
         """
-        capped = min(percentage, 0.2)
+        capped = min(percentage, 0.5)
         now = asyncio.get_event_loop().time()
         self._volume_debounce_values[output_channel] = capped
 
