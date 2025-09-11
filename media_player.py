@@ -145,30 +145,37 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     @property
     def media_title(self) -> str | None:
+        """Return the current media title from the linked source, if any."""
         return self._linked_attr("media_title")
 
     @property
     def media_artist(self) -> str | None:
+        """Return the media artist from the linked source, if any."""
         return self._linked_attr("media_artist")
 
     @property
     def media_album_name(self) -> str | None:
+        """Return the media album from the linked source, if any."""
         return self._linked_attr("media_album_name")
 
     @property
     def media_duration(self) -> int | None:
+        """Return the media duration (seconds) from the linked source, if any."""
         return self._linked_attr("media_duration")
 
     @property
     def media_content_id(self) -> str | None:
+        """Return the media content id from the linked source, if any."""
         return self._linked_attr("media_content_id")
 
     @property
     def media_content_type(self) -> str | None:
+        """Return the media content type from the linked source, if any."""
         return self._linked_attr("media_content_type")
 
     @property
     def entity_picture(self) -> str | None:
+        """Return the artwork URL from the linked source, if any."""
         return self._linked_attr("entity_picture")
 
     @property

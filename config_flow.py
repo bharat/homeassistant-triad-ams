@@ -15,6 +15,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
 
@@ -82,7 +83,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=False)] = bool
         for i in range(1, INPUT_COUNT + 1):
-            schema[vol.Optional(f"link_input_{i}")] = vol.Any(str, None)
+            schema[vol.Optional(f"link_input_{i}")] = selector({"entity": {"domain": "media_player"}})
         return self.async_show_form(step_id="channels", data_schema=vol.Schema(schema))
 
     async def async_step_ssdp(
@@ -141,7 +142,12 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool
         for i in range(1, INPUT_COUNT + 1):
-            schema[vol.Optional(f"link_input_{i}", default=input_links.get(str(i)))] = vol.Any(str, None)
+            key = f"link_input_{i}"
+            existing = input_links.get(str(i))
+            if existing:
+                schema[vol.Optional(key, default=existing)] = selector({"entity": {"domain": "media_player"}})
+            else:
+                schema[vol.Optional(key)] = selector({"entity": {"domain": "media_player"}})
         return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
 
 
