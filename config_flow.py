@@ -78,11 +78,12 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         schema: dict[Any, Any] = {}
-        for i in range(1, INPUT_COUNT + 1):
-            schema[vol.Optional(f"input_{i}", default=False)] = bool
+        # Outputs first
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=False)] = bool
+        # Then inputs, each followed by its optional link
         for i in range(1, INPUT_COUNT + 1):
+            schema[vol.Optional(f"input_{i}", default=False)] = bool
             schema[vol.Optional(f"link_input_{i}")] = selector({"entity": {"domain": "media_player"}})
         return self.async_show_form(step_id="channels", data_schema=vol.Schema(schema))
 
@@ -137,11 +138,12 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
         active_outputs = set(current.get("active_outputs", []))
         input_links = current.get("input_links", {})
         schema: dict[Any, Any] = {}
-        for i in range(1, INPUT_COUNT + 1):
-            schema[vol.Optional(f"input_{i}", default=i in active_inputs)] = bool
+        # Outputs first
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool
+        # Then inputs with inline link selectors
         for i in range(1, INPUT_COUNT + 1):
+            schema[vol.Optional(f"input_{i}", default=i in active_inputs)] = bool
             key = f"link_input_{i}"
             existing = input_links.get(str(i))
             if existing:
