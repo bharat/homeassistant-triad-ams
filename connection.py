@@ -82,6 +82,11 @@ class TriadConnection:
         Command: FF 55 04 03 1E <output> <value>  (output sent as 0-based)
         Value: 0x00 (off) to 0xA1 (max)
         """
+
+        _LOGGER.debug(
+            "Request to set volume for output %d to %.2f", output_channel, percentage
+        )
+
         capped = min(percentage, 0.8)
         loop = asyncio.get_event_loop()
         now = loop.time()
@@ -129,10 +134,9 @@ class TriadConnection:
                         break
                     await asyncio.sleep(0.5 - gap)
                 # Skip if no change since last send
-                if (
-                    self._volume_debounce_last_value_sent.get(output_channel)
-                    != self._volume_debounce_values.get(output_channel)
-                ):
+                if self._volume_debounce_last_value_sent.get(
+                    output_channel
+                ) != self._volume_debounce_values.get(output_channel):
                     await _send_latest()
             except asyncio.CancelledError:
                 pass
@@ -230,4 +234,6 @@ class TriadConnection:
         if "Audio Off" in resp:
             _LOGGER.info("Disconnected output %d (resp: %s)", output_channel, resp)
         else:
-            _LOGGER.info("Requested disconnect for output %d (resp: %s)", output_channel, resp)
+            _LOGGER.info(
+                "Requested disconnect for output %d (resp: %s)", output_channel, resp
+            )
