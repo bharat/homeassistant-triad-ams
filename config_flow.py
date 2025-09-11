@@ -53,7 +53,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_channels(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Choose which inputs and outputs are active (checkboxes)."""
+        """Choose which inputs/outputs are active and optional input links."""
         if user_input is not None:
             active_inputs = [
                 i for i in range(1, INPUT_COUNT + 1) if user_input.get(f"input_{i}")
@@ -61,12 +61,18 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             active_outputs = [
                 i for i in range(1, OUTPUT_COUNT + 1) if user_input.get(f"output_{i}")
             ]
+            input_links = {
+                str(i): user_input.get(f"link_input_{i}")
+                for i in range(1, INPUT_COUNT + 1)
+                if user_input.get(f"link_input_{i}")
+            }
             return self.async_create_entry(
                 title=f"Triad AMS {self._host}",
                 data={"host": self._host, "port": self._port},
                 options={
                     "active_inputs": active_inputs,
                     "active_outputs": active_outputs,
+                    "input_links": input_links,
                 },
             )
 
@@ -75,6 +81,8 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema[vol.Optional(f"input_{i}", default=False)] = bool
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=False)] = bool
+        for i in range(1, INPUT_COUNT + 1):
+            schema[vol.Optional(f"link_input_{i}")] = vol.Any(str, None)
         return self.async_show_form(step_id="channels", data_schema=vol.Schema(schema))
 
     async def async_step_ssdp(
@@ -102,7 +110,7 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Edit which inputs and outputs are active (checkboxes)."""
+        """Edit active channels and optional per-input links."""
         if user_input is not None:
             active_inputs = [
                 i for i in range(1, INPUT_COUNT + 1) if user_input.get(f"input_{i}")
@@ -110,21 +118,30 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
             active_outputs = [
                 i for i in range(1, OUTPUT_COUNT + 1) if user_input.get(f"output_{i}")
             ]
+            input_links = {
+                str(i): user_input.get(f"link_input_{i}")
+                for i in range(1, INPUT_COUNT + 1)
+                if user_input.get(f"link_input_{i}")
+            }
             return self.async_create_entry(
                 data={
                     "active_inputs": active_inputs,
                     "active_outputs": active_outputs,
+                    "input_links": input_links,
                 }
             )
 
         current = self.config_entry.options
         active_inputs = set(current.get("active_inputs", []))
         active_outputs = set(current.get("active_outputs", []))
+        input_links = current.get("input_links", {})
         schema: dict[Any, Any] = {}
         for i in range(1, INPUT_COUNT + 1):
             schema[vol.Optional(f"input_{i}", default=i in active_inputs)] = bool
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool
+        for i in range(1, INPUT_COUNT + 1):
+            schema[vol.Optional(f"link_input_{i}", default=input_links.get(str(i)))] = vol.Any(str, None)
         return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
 
 
@@ -132,4 +149,3 @@ async def _async_has_devices(hass: HomeAssistant) -> bool:
     """Return if there are devices that can be discovered (not implemented)."""
     devices: list[Any] = []
     return len(devices) > 0
-
