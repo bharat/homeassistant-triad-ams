@@ -27,8 +27,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     port = entry.data["port"]
     connection = TriadConnection(host, port)
     entry.runtime_data = connection
+    # Reload entities automatically when options change
+    entry.async_on_unload(entry.add_update_listener(_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options updates by reloading the entry."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers import entity_registry as er
 
 from .connection import TriadConnection
 from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
@@ -47,25 +48,44 @@ async def async_setup_entry(
         connection = TriadConnection(entry.data["host"], entry.data["port"])
         entry.runtime_data = connection
 
-    # New flexible options: maps of configured channels only
+    # Prefer simple active channel options if present
+    active_inputs: list[int] = entry.options.get("active_inputs") or []
+    active_outputs: list[int] = entry.options.get("active_outputs") or []
+
     inputs_cfg: dict[str, dict] = entry.options.get("inputs_config", {})
     outputs_cfg: dict[str, dict] = entry.options.get("outputs_config", {})
-    # Build input names and links by channel
-    input_names: dict[int, str] = {
-        int(ch): cfg.get("name", f"Input {ch}") for ch, cfg in inputs_cfg.items()
-    }
-    input_links: dict[int, str | None] = {
-        int(ch): cfg.get("link") for ch, cfg in inputs_cfg.items()
-    }
+
+    if active_inputs:
+        input_names: dict[int, str] = {i: f"Input {i}" for i in active_inputs}
+        input_links: dict[int, str | None] = {
+            i: inputs_cfg.get(str(i), {}).get("link") for i in active_inputs
+        }
+    else:
+        input_names = {
+            int(ch): cfg.get("name", f"Input {ch}") for ch, cfg in inputs_cfg.items()
+        } or {i: f"Input {i}" for i in range(1, INPUT_COUNT + 1)}
+        input_links = {int(ch): cfg.get("link") for ch, cfg in inputs_cfg.items()}
+
     outputs: list[TriadAmsOutput] = []
-    # Only create entities for configured outputs
-    for ch_str, cfg in sorted(outputs_cfg.items(), key=lambda x: int(x[0])):
-        ch = int(ch_str)
-        name = cfg.get("name", f"Output {ch}")
-        outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
+    if active_outputs:
+        for ch in sorted(active_outputs):
+            name = outputs_cfg.get(str(ch), {}).get("name", f"Output {ch}")
+            outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
+    else:
+        for ch_str, cfg in sorted(outputs_cfg.items(), key=lambda x: int(x[0])):
+            ch = int(ch_str)
+            name = cfg.get("name", f"Output {ch}")
+            outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
 
     await asyncio.gather(*(output.refresh() for output in outputs))
-    entities = [TriadAmsMediaPlayer(output, entry.entry_id, input_links) for output in outputs]
+    # Map output channel -> area id (optional)
+    output_areas: dict[int, str | None] = {
+        int(ch): cfg.get("area_id") for ch, cfg in outputs_cfg.items()
+    }
+    entities = [
+        TriadAmsMediaPlayer(output, entry.entry_id, input_links, output_areas)
+        for output in outputs
+    ]
     async_add_entities(entities)
     _LOGGER.debug(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
@@ -84,10 +104,17 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(self, output: TriadAmsOutput, entry_id: str, input_links: dict[int, str | None]) -> None:
+    def __init__(
+        self,
+        output: TriadAmsOutput,
+        entry_id: str,
+        input_links: dict[int, str | None],
+        output_areas: dict[int, str | None],
+    ) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
         self._input_links = input_links
+        self._output_areas = output_areas
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
         self._attr_unique_id = f"{entry_id}_output_{output.number}"
@@ -130,6 +157,13 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Entity added to Home Assistant: write initial state."""
         self.async_write_ha_state()
         self._update_link_subscription()
+        # Assign area from options if provided
+        area_id = self._output_areas.get(self.output.number)
+        if area_id:
+            registry = er.async_get(self.hass)
+            entry = registry.async_get(self.entity_id)
+            if not entry or entry.area_id != area_id:
+                registry.async_update_entity(self.entity_id, area_id=area_id)
 
     @property
     def is_on(self) -> bool:
