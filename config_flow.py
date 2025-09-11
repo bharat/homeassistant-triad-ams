@@ -24,6 +24,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     MINOR_VERSION = 2
 
     def __init__(self) -> None:
+        """Initialize runtime state for the Triad AMS config flow."""
         self._host: str | None = None
         self._port: int | None = None
         self._inputs: dict[int, dict[str, Any]] = {}
@@ -60,6 +61,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_config_menu(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Menu to add inputs/outputs incrementally or finish setup."""
         if user_input is not None:
             action = user_input["action"]
             if action == "add_input":
@@ -108,6 +110,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_input(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Add or update a single input: channel, name, optional link."""
         if user_input is not None:
             ch = int(user_input["channel"])
             name = user_input["name"]
@@ -132,6 +135,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_output(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Add or update a single output: channel and name."""
         if user_input is not None:
             ch = int(user_input["channel"])
             name = user_input["name"]
@@ -170,6 +174,7 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options for Triad AMS: add inputs/outputs and save."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options handler and cache existing configuration."""
         self.config_entry = config_entry
         self._inputs = {
             int(k): v for k, v in config_entry.options.get("inputs_config", {}).items()
@@ -181,6 +186,7 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Show options menu to add inputs/outputs or save changes."""
         if user_input is not None:
             action = user_input["action"]
             if action == "add_input":
@@ -216,6 +222,7 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_input(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Add or update a single input in options."""
         if user_input is not None:
             ch = int(user_input["channel"])
             name = user_input["name"]
@@ -240,6 +247,7 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_add_output(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        """Add or update a single output in options."""
         if user_input is not None:
             ch = int(user_input["channel"])
             name = user_input["name"]
