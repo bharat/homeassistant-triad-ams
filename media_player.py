@@ -51,9 +51,20 @@ async def async_setup_entry(
     active_inputs: list[int] = entry.options.get("active_inputs", [])
     active_outputs: list[int] = entry.options.get("active_outputs", [])
 
-    input_names: dict[int, str] = {i: f"Input {i}" for i in active_inputs}
     input_links_opt: dict[str, str] = entry.options.get("input_links", {})
-    input_links: dict[int, str | None] = {i: input_links_opt.get(str(i)) for i in active_inputs}
+    # Use linked entity friendly names when available
+    input_names: dict[int, str] = {}
+    for i in active_inputs:
+        ent_id = input_links_opt.get(str(i))
+        if ent_id:
+            st = hass.states.get(ent_id)
+            if st:
+                input_names[i] = st.name
+                continue
+        input_names[i] = f"Input {i}"
+    input_links: dict[int, str | None] = {
+        i: input_links_opt.get(str(i)) for i in active_inputs
+    }
 
     outputs: list[TriadAmsOutput] = []
     for ch in sorted(active_outputs):
@@ -61,7 +72,9 @@ async def async_setup_entry(
         outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
 
     await asyncio.gather(*(output.refresh() for output in outputs))
-    entities = [TriadAmsMediaPlayer(output, entry.entry_id, input_links) for output in outputs]
+    entities = [
+        TriadAmsMediaPlayer(output, entry.entry_id, input_links) for output in outputs
+    ]
     async_add_entities(entities)
     _LOGGER.debug(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
@@ -97,7 +110,9 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(self, output: TriadAmsOutput, entry_id: str, input_links: dict[int, str | None]) -> None:
+    def __init__(
+        self, output: TriadAmsOutput, entry_id: str, input_links: dict[int, str | None]
+    ) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
         self._input_links = input_links
@@ -111,7 +126,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             "identifiers": {(DOMAIN, f"{entry_id}_output_{output.number}")},
             "name": output.name,
             "manufacturer": "Triad",
-            "model": "AMS Audio Matrix Switch",
+            "model": "Audio Channel",
         }
 
     # ---- Optional linked upstream media attribute proxying ----
