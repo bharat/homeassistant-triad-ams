@@ -11,8 +11,9 @@ from homeassistant.components.media_player import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from .models import TriadAmsOutput
+
 from .connection import TriadConnection
+from .models import TriadAmsOutput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,36 +42,63 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     """Media player entity representing a Triad AMS output."""
 
     _attr_supported_features = (
-        MediaPlayerEntityFeature.TURN_ON
-        | MediaPlayerEntityFeature.TURN_OFF
+        MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.VOLUME_SET
+        | MediaPlayerEntityFeature.SELECT_SOURCE
     )
+
+    @property
+    def source(self) -> str | None:
+        """Return the current source name."""
+        return self.output.source_name
+
+    @property
+    def source_list(self) -> list[str]:
+        """Return the list of available source names."""
+        return self.output.source_list
+
+    async def async_select_source(self, source: str) -> None:
+        """Select a source by friendly name."""
+        input_id = self.output.source_id_for_name(source)
+        if input_id is not None:
+            await self.output.set_source(input_id)
+            self.async_write_ha_state()
+        else:
+            _LOGGER.error("Unknown source name: %s", source)
+
     _attr_has_entity_name = True
 
     def __init__(self, output: TriadAmsOutput) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
         self._attr_unique_id = f"triad_ams_output_{output.number}"
-        self._attr_name = output.name
+        self._attr_name = None  # Use device name only for friendly name
+        self._attr_has_entity_name = True
+        self._attr_device_info = {
+            "identifiers": {("triad_ams", f"output_{output.number}")},
+            "name": output.name,
+            "manufacturer": "Triad",
+            "model": "AMS Audio Matrix Switch",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh state from device when entity is added to Home Assistant."""
+        await self.output.refresh()
 
     @property
-    def is_on(self) -> bool:
-        """Return True if the output is on."""
-        return self.output.is_on
+    def is_on(self) -> bool | None:
+        """Return True if the output is on, or None if unknown."""
+        return self.output.is_on if self.output.is_on is not None else None
 
     @property
     def volume_level(self) -> float | None:
-        """Return the volume level of the output."""
-        return self.output.volume
-
-    async def async_turn_on(self) -> None:
-        """Turn on the output."""
-        await self.output.set_is_on(True)
+        """Return the volume level of the output (0..1), or None if unknown."""
+        return self.output.volume if self.output.volume is not None else None
 
     async def async_turn_off(self) -> None:
-        """Turn off the output."""
-        await self.output.set_is_on(False)
+        """Turn off the output (disconnect from any input)."""
+        await self.output.turn_off()
 
     async def async_set_volume_level(self, volume: float) -> None:
-        """Set the volume level of the output."""
+        """Set the volume level of the output (0..1)."""
         await self.output.set_volume(volume)

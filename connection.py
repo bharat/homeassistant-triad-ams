@@ -2,18 +2,21 @@
 
 import asyncio
 import logging
-from typing import Optional
+
+from .const import OUTPUT_COUNT
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class TriadConnection:
+    """Manages a persistent connection to the Triad AMS device, providing methods to control and query device state."""
+
     def __init__(self, host: str, port: int) -> None:
         """Initialize a persistent connection to the Triad AMS device."""
         self.host = host
         self.port = port
-        self._reader: Optional[asyncio.StreamReader] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
@@ -57,9 +60,13 @@ class TriadConnection:
     async def set_output_to_input(
         self, output_channel: int, input_channel: int
     ) -> None:
-        """Route a specific output channel to a given input channel."""
-        # TODO: Implement actual command
-        _LOGGER.info("Set output %d to input %d", output_channel, input_channel)
+        """Route a specific output channel to a given input channel (both zero-based)."""
+        # Command: FF 55 04 03 1D <output> <input>
+        cmd = bytearray.fromhex("FF5504031D") + bytes([output_channel, input_channel])
+        resp = await self._send_command(cmd.hex())
+        _LOGGER.info(
+            "Set output %d to input %d (resp: %s)", output_channel, input_channel, resp
+        )
 
     async def get_output_source(self, output_channel: int) -> int:
         """Get the input source currently routed to a specific output channel."""
@@ -71,3 +78,8 @@ class TriadConnection:
         """Set the trigger zone on or off."""
         # TODO: Implement actual command
         _LOGGER.info("Set trigger zone to %s", on)
+
+    async def disconnect_output(self, output_channel: int) -> None:
+        """Disconnect the output by routing it to an invalid input channel (off)."""
+
+        await self.set_output_to_input(output_channel, OUTPUT_COUNT)

@@ -9,10 +9,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN
-
-INPUT_COUNT = 8
-OUTPUT_COUNT = 8
+from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
 
 
 def _input_output_schema(
