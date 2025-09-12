@@ -71,7 +71,7 @@ class TriadAmsOutput:
         try:
             # If all outputs are off, enable trigger zone first
             if self._outputs and not any(o.has_source for o in self._outputs):
-                await self.connection.set_trigger_zone(True)
+                await self.connection.set_trigger_zone(on=True)
             # Connection methods expect 1-based indices
             await self.connection.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
@@ -79,8 +79,8 @@ class TriadAmsOutput:
             self._last_assigned_input = input_id
             # Turning on (UI) implicitly when a source is routed
             self._ui_on = True
-        except OSError as err:
-            _LOGGER.error("Failed to set source for output %d: %s", self.number, err)
+        except OSError:
+            _LOGGER.exception("Failed to set source for output %d", self.number)
 
     @property
     def volume(self) -> float | None:
@@ -92,8 +92,8 @@ class TriadAmsOutput:
         try:
             await self.connection.set_output_volume(self.number, value)
             self._volume = value
-        except OSError as err:
-            _LOGGER.error("Failed to set volume for output %d: %s", self.number, err)
+        except OSError:
+            _LOGGER.exception("Failed to set volume for output %d", self.number)
 
     @property
     def is_on(self) -> bool:
@@ -111,9 +111,9 @@ class TriadAmsOutput:
             self._ui_on = False
             # If this was the last output on, disable trigger zone
             if self._outputs and not any(o.has_source for o in self._outputs):
-                await self.connection.set_trigger_zone(False)
-        except OSError as err:
-            _LOGGER.error("Failed to turn off output %d: %s", self.number, err)
+                await self.connection.set_trigger_zone(on=False)
+        except OSError:
+            _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
         """Turn on the player and restore the previous source if known."""
@@ -136,5 +136,5 @@ class TriadAmsOutput:
             else:
                 self._assigned_input = None
                 self._ui_on = False
-        except OSError as err:
-            _LOGGER.error("Failed to refresh output %d: %s", self.number, err)
+        except OSError:
+            _LOGGER.exception("Failed to refresh output %d", self.number)

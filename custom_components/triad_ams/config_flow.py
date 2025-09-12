@@ -1,4 +1,5 @@
-"""Simple config flow for Triad AMS: select active inputs/outputs.
+"""
+Simple config flow for Triad AMS: select active inputs/outputs.
 
 This flow intentionally keeps the UI minimal: after providing host/port,
 users choose which input and output channels are active via checkboxes.
@@ -12,7 +13,6 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
@@ -84,7 +84,9 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Then inputs, each followed by its optional link
         for i in range(1, INPUT_COUNT + 1):
             schema[vol.Optional(f"input_{i}", default=False)] = bool
-            schema[vol.Optional(f"link_input_{i}")] = selector({"entity": {"domain": "media_player"}})
+            schema[vol.Optional(f"link_input_{i}")] = selector(
+                {"entity": {"domain": "media_player"}}
+            )
         return self.async_show_form(step_id="channels", data_schema=vol.Schema(schema))
 
     # No discovery implemented; omit SSDP/zeroconf handlers to avoid
@@ -144,13 +146,17 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
             key = f"link_input_{i}"
             existing = input_links.get(str(i))
             if existing:
-                schema[vol.Optional(key, default=existing)] = selector({"entity": {"domain": "media_player"}})
+                schema[vol.Optional(key, default=existing)] = selector(
+                    {"entity": {"domain": "media_player"}}
+                )
             else:
-                schema[vol.Optional(key)] = selector({"entity": {"domain": "media_player"}})
+                schema[vol.Optional(key)] = selector(
+                    {"entity": {"domain": "media_player"}}
+                )
         return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
 
 
-async def _async_has_devices(hass: HomeAssistant) -> bool:
+async def _async_has_devices(_hass: HomeAssistant) -> bool:
     """Return if there are devices that can be discovered (not implemented)."""
     devices: list[Any] = []
     return len(devices) > 0

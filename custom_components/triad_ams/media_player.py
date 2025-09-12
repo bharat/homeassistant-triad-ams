@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -11,11 +12,14 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .connection import TriadConnection
 from .const import DOMAIN
@@ -40,7 +44,8 @@ async def async_setup_entry(
     connection: TriadConnection = entry.runtime_data
     if connection is None:
         _LOGGER.debug(
-            "No runtime connection found; creating TriadConnection for host=%s, port=%s",
+            "No runtime connection found; creating TriadConnection for host=%s, "
+            "port=%s",
             entry.data["host"],
             entry.data["port"],
         )
@@ -83,9 +88,12 @@ async def async_setup_entry(
     allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
     registry = er.async_get(hass)
     for ent in list(registry.entities.values()):
-        if ent.platform == DOMAIN and ent.config_entry_id == entry.entry_id:
-            if ent.unique_id not in allowed:
-                registry.async_remove(ent.entity_id)
+        if (
+            ent.platform == DOMAIN
+            and ent.config_entry_id == entry.entry_id
+            and ent.unique_id not in allowed
+        ):
+            registry.async_remove(ent.entity_id)
 
     # Remove orphaned devices (those without any entities for this entry)
     dev_reg = dr.async_get(hass)
@@ -152,11 +160,11 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             )
 
     @callback
-    def _handle_linked_state_change(self, event) -> None:
+    def _handle_linked_state_change(self, _event: object) -> None:
         """Handle state changes from the linked source entity on the event loop."""
         self.async_write_ha_state()
 
-    def _linked_attr(self, key: str):
+    def _linked_attr(self, key: str) -> Any | None:
         if not self._linked_entity_id or self.hass is None:
             return None
         st = self.hass.states.get(self._linked_entity_id)

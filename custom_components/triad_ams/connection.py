@@ -1,4 +1,8 @@
-"""TriadConnection: manages the persistent connection to the Triad AMS device."""
+"""
+Connection management for Triad AMS.
+
+Provides async helpers to control and query device state.
+"""
 
 import asyncio
 import logging
@@ -9,8 +13,11 @@ from .const import INPUT_COUNT
 _LOGGER = logging.getLogger(__name__)
 
 
+VOLUME_DEBOUNCE_WINDOW = 0.5
+
+
 class TriadConnection:
-    """Manages a persistent connection to the Triad AMS device, providing methods to control and query device state."""
+    """Manage a persistent connection to the Triad AMS device."""
 
     # Instance-scoped debounce/throttle state for volume per output
 
@@ -46,7 +53,12 @@ class TriadConnection:
             _LOGGER.info("Disconnected from Triad AMS")
 
     async def _send_command(self, command: bytes) -> str:
-        """Send a command to the device and return the response as a string (with timeout and raw logging)."""
+        """
+        Send a command and return the response string.
+
+        Adds a small inter-command delay, logs raw traffic, and applies a
+        reasonable timeout to reads.
+        """
         async with self._lock:
             if self._writer is None:
                 await self.connect()
@@ -60,12 +72,12 @@ class TriadConnection:
                     self._reader.readuntil(b"\x00"), timeout=10
                 )
             except TimeoutError:
-                _LOGGER.error(
+                _LOGGER.exception(
                     "Timeout waiting for response to command: %s", command.hex()
                 )
                 return ""
             except asyncio.IncompleteReadError as e:
-                _LOGGER.error(
+                _LOGGER.exception(
                     "Incomplete read waiting for response to command: %s, partial=%r",
                     command.hex(),
                     e.partial,
@@ -75,15 +87,16 @@ class TriadConnection:
             return response.decode(errors="replace").strip("\x00").strip()
 
     async def set_output_volume(self, output_channel: int, percentage: float) -> None:
-        """Set volume with simple rate limit: immediate send, max 1/500ms, trailing final.
+        """
+        Set volume with simple rate limit: immediate send, max 1/500ms, trailing final.
 
         Args:
             output_channel: 1-based output channel index.
             percentage: Volume as a float (0.0 = off, 1.0 = max), capped at 0.8.
         Command: FF 55 04 03 1E <output> <value>  (output sent as 0-based)
         Value: 0x00 (off) to 0xA1 (max)
-        """
 
+        """
         _LOGGER.debug(
             "Request to set volume for output %d to %.2f", output_channel, percentage
         )
@@ -112,8 +125,8 @@ class TriadConnection:
         last_sent = self._volume_debounce_last_sent.get(output_channel, 0.0)
         pending = self._volume_debounce_tasks.get(output_channel)
 
-        # 1) Send immediately if 500ms window allows
-        if now - last_sent >= 0.5:
+        # 1) Send immediately if window allows
+        if now - last_sent >= VOLUME_DEBOUNCE_WINDOW:
             if pending and not pending.done():
                 pending.cancel()
             self._volume_debounce_tasks[output_channel] = asyncio.create_task(
@@ -126,14 +139,14 @@ class TriadConnection:
 
         async def trailing() -> None:
             try:
-                # Wait until 500ms have elapsed since last send
+                # Wait until the debounce window has elapsed since last send
                 while True:
                     gap = loop.time() - self._volume_debounce_last_sent.get(
                         output_channel, 0.0
                     )
-                    if gap >= 0.5:
+                    if gap >= VOLUME_DEBOUNCE_WINDOW:
                         break
-                    await asyncio.sleep(0.5 - gap)
+                    await asyncio.sleep(VOLUME_DEBOUNCE_WINDOW - gap)
                 # Skip if no change since last send
                 if self._volume_debounce_last_value_sent.get(
                     output_channel
@@ -145,22 +158,24 @@ class TriadConnection:
         self._volume_debounce_tasks[output_channel] = asyncio.create_task(trailing())
 
     async def get_output_volume(self, output_channel: int) -> float:
-        """Get the volume for a specific output channel.
+        """
+        Get the volume for a specific output channel.
 
         Args:
             output_channel: 1-based output channel index.
         Command: FF 55 04 03 1E F5 <output>
         Returns:
             float: Volume as a float (0.0 = off, 1.0 = max)
+
         """
         cmd = bytearray.fromhex("FF5504031EF5") + bytes([output_channel - 1])
         resp = await self._send_command(cmd)
-        # Response: b'Get Out[7] Volume : -26.5\x00' or b'Get Out[7] Volume : 0xA1\x00'
         m = re.search(r"Volume : (-?\d+\.\d+|-?\d+)", resp)
         if m:
-            # Device returns dB as float, convert to 0..1 scale (assume -80dB=min, 0=max)
+            # Device returns dB; convert to 0..1 scale
+            # Assume -80 dB is min and 0 dB is max
             db = float(m.group(1))
-            # Clamp and scale: -80dB (min) = 0.0, 0dB (max) = 1.0
+            # Clamp and scale: -80 dB -> 0.0, 0 dB -> 1.0
             return max(0.0, min(1.0, (db + 80) / 80))
         m_hex = re.search(r"Volume : 0x([0-9A-Fa-f]+)", resp)
         if m_hex:
@@ -172,12 +187,14 @@ class TriadConnection:
     async def set_output_to_input(
         self, output_channel: int, input_channel: int
     ) -> None:
-        """Route a specific output channel to a given input channel.
+        """
+        Route a specific output channel to a given input channel.
 
         Args:
             output_channel: 1-based output channel index.
             input_channel: 1-based input channel index.
         Command: FF 55 04 03 1D <output> <input>
+
         """
         cmd = bytearray.fromhex("FF5504031D") + bytes(
             [output_channel - 1, input_channel - 1]
@@ -192,17 +209,18 @@ class TriadConnection:
         )
 
     async def get_output_source(self, output_channel: int) -> int | None:
-        """Get the input source currently routed to a specific output channel.
+        """
+        Get the input source currently routed to a specific output channel.
 
         Args:
             output_channel: 1-based output channel index.
         Command: FF 55 04 03 1D F5 <output>
         Returns:
             int | None: 1-based input channel, or None if Audio Off.
+
         """
         cmd = bytearray.fromhex("FF5504031DF5") + bytes([output_channel - 1])
         resp = await self._send_command(cmd)
-        # Response: b'Get Out[7] Input Source : input 3\x00' or b'Get Out[7] Input Source : Audio Off\x00'
         if "Audio Off" in resp:
             return None
         m = re.search(r"input (\d+)", resp)
@@ -211,23 +229,27 @@ class TriadConnection:
         _LOGGER.error("Could not parse output source from response: %s", resp)
         return None
 
-    async def set_trigger_zone(self, on: bool) -> None:
-        """Set the trigger zone on or off.
+    async def set_trigger_zone(self, *, on: bool) -> None:
+        """
+        Set the trigger zone on or off.
 
         Args:
             on: True to enable, False to disable.
         Command: On: FF 55 03 05 50 00, Off: FF 55 03 05 51 00
+
         """
         cmd = bytearray.fromhex("FF5503055000" if on else "FF5503055100")
         resp = await self._send_command(cmd)
         _LOGGER.info("Set trigger zone to %s (resp: %s)", on, resp)
 
     async def disconnect_output(self, output_channel: int) -> None:
-        """Disconnect the output by routing it to an invalid input channel (off).
+        """
+        Disconnect the output by routing it to an invalid input channel (off).
 
         Args:
             output_channel: 1-based output channel index.
         Command: FF 55 04 03 1D <output> <invalid_input>
+
         """
         cmd = bytearray.fromhex("FF5504031D") + bytes([output_channel - 1, INPUT_COUNT])
         resp = await self._send_command(cmd)
