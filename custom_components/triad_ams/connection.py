@@ -211,17 +211,29 @@ class TriadConnection:
         Return True if the output is muted.
 
         Command: FF 55 04 03 17 F5 <output>
-        Response heuristics: match 'Mute : On/Off' or 'Muted' strings.
+        Response formats observed (case varies):
+          - "Get Out[1] Mute status : Unmute"
+          - "Get Out[5] Mute status : mute"
+          - "Mute : On" / "Mute : Off"
+          - "Muted" / "Unmuted"
 
         """
         cmd = bytearray.fromhex("FF55040317F5") + bytes([output_channel - 1])
         resp = await self._send_command(cmd)
-        m = re.search(r"Mute\s*:\s*(On|Off)", resp, re.IGNORECASE)
+        # Try to capture the token after "Mute" or "Mute status"
+        m = re.search(r"Mute(?:\s+status)?\s*:\s*([A-Za-z0-9]+)", resp, re.IGNORECASE)
         if m:
-            return m.group(1).lower() == "on"
-        if re.search(r"Muted\b", resp, re.IGNORECASE):
+            token = m.group(1).strip().lower()
+            true_tokens = {"on", "mute", "muted", "1", "true", "yes"}
+            false_tokens = {"off", "unmute", "unmuted", "0", "false", "no"}
+            if token in true_tokens:
+                return True
+            if token in false_tokens:
+                return False
+        # Fallback heuristics
+        if re.search(r"\bmuted\b", resp, re.IGNORECASE):
             return True
-        if re.search(r"Unmuted\b", resp, re.IGNORECASE):
+        if re.search(r"\bunmuted|unmute\b", resp, re.IGNORECASE):
             return False
         _LOGGER.warning("Could not parse mute state from response: %s", resp)
         return False
