@@ -12,11 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 class TriadConnection:
     """Manages a persistent connection to the Triad AMS device, providing methods to control and query device state."""
 
-    # Debounce/throttle state for volume per output
-    _volume_debounce_tasks: dict[int, asyncio.Task] = {}
-    _volume_debounce_values: dict[int, float] = {}
-    _volume_debounce_last_sent: dict[int, float] = {}
-    _volume_debounce_last_value_sent: dict[int, float] = {}
+    # Instance-scoped debounce/throttle state for volume per output
 
     def __init__(self, host: str, port: int) -> None:
         """Initialize a persistent connection to the Triad AMS device."""
@@ -25,6 +21,11 @@ class TriadConnection:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
+        # Debounce state is per-connection to avoid cross-instance interference
+        self._volume_debounce_tasks: dict[int, asyncio.Task] = {}
+        self._volume_debounce_values: dict[int, float] = {}
+        self._volume_debounce_last_sent: dict[int, float] = {}
+        self._volume_debounce_last_value_sent: dict[int, float] = {}
 
     async def connect(self) -> None:
         """Establish a connection to the Triad AMS device if not already connected."""
@@ -88,7 +89,7 @@ class TriadConnection:
         )
 
         capped = min(percentage, 0.8)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         now = loop.time()
         self._volume_debounce_values[output_channel] = capped
 
