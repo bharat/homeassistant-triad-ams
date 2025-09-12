@@ -231,15 +231,17 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         input_id = self.output.source_id_for_name(source)
         if input_id is not None:
             await self.output.set_source(input_id)
-            self.async_write_ha_state()
+            # Update link subscription first so derived attributes reflect
+            # the new linked source on this state write.
             self._update_link_subscription()
+            self.async_write_ha_state()
         else:
             _LOGGER.error("Unknown source name: %s", source)
 
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: write initial state."""
-        self.async_write_ha_state()
         self._update_link_subscription()
+        self.async_write_ha_state()
 
     @property
     def is_on(self) -> bool:
@@ -254,8 +256,10 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_turn_off(self) -> None:
         """Turn off the output (disconnect from any input)."""
         await self.output.turn_off()
-        self.async_write_ha_state()
+        # Unsubscribe before writing state so we don't expose linked metadata
+        # while the output is off.
         self._update_link_subscription()
+        self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
@@ -264,7 +268,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_turn_on(self) -> None:
         """Turn on the player in UI without routing a source."""
         await self.output.turn_on()
-        self.async_write_ha_state()
         self._update_link_subscription()
+        self.async_write_ha_state()
 
     # No media attribute proxying in simplified flow
