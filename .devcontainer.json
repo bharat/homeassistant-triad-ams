@@ -20,7 +20,8 @@
                 "ms-python.vscode-pylance",
                 "ryanluker.vscode-coverage-gutters",
                 "SanjulaGanepola.github-local-actions",
-                "openai.chatgpt"
+                "openai.chatgpt",
+                "github.vscode-github-actions"
             ],
             "settings": {
                 "files.eol": "\n",

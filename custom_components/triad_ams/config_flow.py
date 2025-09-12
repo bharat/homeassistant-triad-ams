@@ -27,24 +27,29 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     MINOR_VERSION = 3
 
     def __init__(self) -> None:
-        """Initialize the flow state with host/port placeholders."""
+        """Initialize the flow state with host/port/name placeholders."""
         self._host: str | None = None
         self._port: int | None = None
+        self._name: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Collect host/port and continue to channel selection."""
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
             self._host = user_input["host"]
             self._port = user_input["port"]
+            self._name = user_input.get("name") or f"Triad AMS {self._host}"
+            # Use host:port as a stable unique_id to prevent duplicates,
+            # while still allowing multiple distinct hubs.
+            await self.async_set_unique_id(f"{self._host}:{self._port}")
+            self._abort_if_unique_id_configured()
             return await self.async_step_channels()
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
+                    vol.Optional("name", default="Triad AMS"): str,
                     vol.Required("host"): str,
                     vol.Required("port", default=52000): int,
                 }
@@ -68,7 +73,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if user_input.get(f"link_input_{i}")
             }
             return self.async_create_entry(
-                title=f"Triad AMS {self._host}",
+                title=self._name or f"Triad AMS {self._host}",
                 data={"host": self._host, "port": self._port},
                 options={
                     "active_inputs": active_inputs,
@@ -113,6 +118,12 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Edit active channels and optional per-input links."""
         if user_input is not None:
+            # Update the entry title if the name changed
+            new_title = user_input.get("name")
+            if new_title and new_title != self.config_entry.title:
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, title=new_title
+                )
             active_inputs = [
                 i for i in range(1, INPUT_COUNT + 1) if user_input.get(f"input_{i}")
             ]
@@ -137,6 +148,8 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
         active_outputs = set(current.get("active_outputs", []))
         input_links = current.get("input_links", {})
         schema: dict[Any, Any] = {}
+        # Allow renaming the device (updates entry title)
+        schema[vol.Optional("name", default=self.config_entry.title)] = str
         # Outputs first
         for i in range(1, OUTPUT_COUNT + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool

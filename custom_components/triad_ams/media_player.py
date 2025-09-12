@@ -78,7 +78,7 @@ async def async_setup_entry(
 
     await asyncio.gather(*(output.refresh() for output in outputs))
     entities = [
-        TriadAmsMediaPlayer(output, entry.entry_id, input_links) for output in outputs
+        TriadAmsMediaPlayer(output, entry, input_links) for output in outputs
     ]
     async_add_entities(entities)
     _LOGGER.debug(
@@ -119,22 +119,28 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     _attr_has_entity_name = True
 
     def __init__(
-        self, output: TriadAmsOutput, entry_id: str, input_links: dict[int, str | None]
+        self,
+        output: TriadAmsOutput,
+        entry: "ConfigEntry",
+        input_links: dict[int, str | None],
     ) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
         self._input_links = input_links
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
-        self._attr_unique_id = f"{entry_id}_output_{output.number}"
-        self._attr_name = None  # Use device name only for friendly name
+        # Keep per-entry unique entity IDs stable
+        self._attr_unique_id = f"{entry.entry_id}_output_{output.number}"
+        # Entity name part; with has_entity_name this becomes the suffix
+        self._attr_name = f"Output {output.number}"
         self._attr_has_entity_name = True
         self._attr_device_class = MediaPlayerDeviceClass.SPEAKER
+        # Group all outputs under one device per config entry
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{entry_id}_output_{output.number}")},
-            "name": output.name,
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
             "manufacturer": "Triad",
-            "model": "Audio Channel",
+            "model": "Audio Matrix",
         }
 
     # ---- Optional linked upstream media attribute proxying ----
