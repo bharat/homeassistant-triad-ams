@@ -1,5 +1,6 @@
 """Data models for Triad AMS integration."""
 
+import asyncio
 import logging
 
 from .connection import TriadConnection
@@ -139,6 +140,10 @@ class TriadAmsOutput:
             self._ui_on = False
             # If this was the last output on, disable trigger zone
             if self._outputs and not any(o.has_source for o in self._outputs):
+                # Give the device a brief moment to settle so its
+                # response to the disconnect doesn't get read as the
+                # response to the trigger-zone command.
+                await asyncio.sleep(0.2)
                 await self.connection.set_trigger_zone(on=False)
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
