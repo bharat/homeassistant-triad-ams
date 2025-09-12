@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Triad AMS icon">
+  <defs>
+    <style>
+      .fill { fill: #111; }
+      .round { rx: 14; ry: 14; }
+    </style>
+  </defs>
+
+  <!-- Compact mark for small sizes -->
+  <polygon class="fill" points="256,70 120,306 392,306"/>
+  <polygon class="fill" points="168,324 132,388 204,388"/>
+  <polygon class="fill" points="344,324 308,388 380,388"/>
+  <rect class="fill round" x="116" y="408" width="280" height="26"/>
+  <rect class="fill round" x="148" y="444" width="216" height="22"/>
+</svg>

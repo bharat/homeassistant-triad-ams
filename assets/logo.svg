@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Triad AMS">
+  <defs>
+    <style>
+      .fill { fill: #111; }
+      .round { rx: 18; ry: 18; }
+    </style>
+  </defs>
+
+  <!-- Large apex triangle -->
+  <polygon class="fill" points="256,56 106,316 406,316"/>
+
+  <!-- Two smaller support triangles -->
+  <polygon class="fill" points="150,332 106,408 194,408"/>
+  <polygon class="fill" points="362,332 318,408 406,408"/>
+
+  <!-- Base lines (stylized audio bars) -->
+  <rect class="fill round" x="88"  y="426" width="336" height="22"/>
+  <rect class="fill round" x="118" y="456" width="276" height="22"/>
+  <rect class="fill round" x="148" y="486" width="216" height="18"/>
+</svg>
