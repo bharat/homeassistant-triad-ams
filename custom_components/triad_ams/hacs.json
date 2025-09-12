@@ -1,6 +1,0 @@
-{
-  "name": "Triad AMS",
-  "render_readme": true,
-  "hacs_min_version": "1.32.0",
-  "homeassistant": "2024.7.0"
-}
