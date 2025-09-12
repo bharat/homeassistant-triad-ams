@@ -32,4 +32,3 @@ HACS notes
 Troubleshooting
 - HACS not showing the new version? Make sure the tag is pushed and the version in `manifest.json` matches the tag
 - Users stuck with old devices after removing outputs? Ask them to open Options → Save to trigger the built‑in cleanup
-

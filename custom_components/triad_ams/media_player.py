@@ -77,9 +77,7 @@ async def async_setup_entry(
         outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
 
     await asyncio.gather(*(output.refresh() for output in outputs))
-    entities = [
-        TriadAmsMediaPlayer(output, entry, input_links) for output in outputs
-    ]
+    entities = [TriadAmsMediaPlayer(output, entry, input_links) for output in outputs]
     async_add_entities(entities)
     _LOGGER.debug(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
