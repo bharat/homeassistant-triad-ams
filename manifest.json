@@ -5,7 +5,7 @@
     "@bharat"
   ],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/triad_ams",
+  "documentation": "https://github.com/bharat/homeassistant-triad-ams",
   "iot_class": "local_polling",
   "quality_scale": "bronze",
   "requirements": [],

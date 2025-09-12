@@ -87,11 +87,8 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema[vol.Optional(f"link_input_{i}")] = selector({"entity": {"domain": "media_player"}})
         return self.async_show_form(step_id="channels", data_schema=vol.Schema(schema))
 
-    async def async_step_ssdp(
-        self, discovery_info: config_entries.SsdpServiceInfo
-    ) -> config_entries.ConfigFlowResult:
-        """Handle SSDP discovery (placeholder, not implemented)."""
-        return await self.async_step_user()
+    # No discovery implemented; omit SSDP/zeroconf handlers to avoid
+    # hassfest discoverable flow requirements.
 
     @staticmethod
     @callback
