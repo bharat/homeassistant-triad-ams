@@ -1,4 +1,4 @@
-Triad AMS for Home Assistant
+Triad AMS for Home Assistant [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 ============================
 
 A custom Home Assistant integration for controlling a Triad AMS 8x8 audio matrix switch over TCP. The integration exposes one media player entity per active output zone and lets you select a routed input, adjust volume, and optionally mirror metadata from an upstream media player entity.
