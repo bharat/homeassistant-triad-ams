@@ -121,7 +121,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     def __init__(
         self,
         output: TriadAmsOutput,
-        entry: "ConfigEntry",
+        entry: ConfigEntry,
         input_links: dict[int, str | None],
     ) -> None:
         """Initialize a Triad AMS output media player entity."""
