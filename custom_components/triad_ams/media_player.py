@@ -146,9 +146,15 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             self._linked_unsub = None
         self._linked_entity_id = desired
         if desired and self.hass is not None:
+            # Register a thread-safe callback on the event loop, not in an executor
             self._linked_unsub = async_track_state_change_event(
-                self.hass, [desired], lambda event: self.async_write_ha_state()
+                self.hass, [desired], self._handle_linked_state_change
             )
+
+    @callback
+    def _handle_linked_state_change(self, event) -> None:
+        """Handle state changes from the linked source entity on the event loop."""
+        self.async_write_ha_state()
 
     def _linked_attr(self, key: str):
         if not self._linked_entity_id or self.hass is None:
