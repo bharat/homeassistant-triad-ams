@@ -7,6 +7,7 @@ Provides async helpers to control and query device state.
 import asyncio
 import logging
 import re
+from typing import cast
 
 from .const import INPUT_COUNT
 
@@ -60,17 +61,18 @@ class TriadConnection:
         reasonable timeout to reads.
         """
         async with self._lock:
-            if self._writer is None:
+            if self._writer is None or self._reader is None:
                 await self.connect()
+            # Create local non-optional references for type checkers
+            writer = cast("asyncio.StreamWriter", self._writer)
+            reader = cast("asyncio.StreamReader", self._reader)
             _LOGGER.debug("Sending raw bytes: %s", command.hex())
-            self._writer.write(command)
-            await self._writer.drain()
+            writer.write(command)
+            await writer.drain()
             # Add a small delay between commands for device tolerance
             await asyncio.sleep(0.2)
             try:
-                response = await asyncio.wait_for(
-                    self._reader.readuntil(b"\x00"), timeout=10
-                )
+                response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=10)
             except TimeoutError:
                 _LOGGER.exception(
                     "Timeout waiting for response to command: %s", command.hex()
