@@ -111,6 +111,8 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.TURN_ON
         | MediaPlayerEntityFeature.VOLUME_SET
+        | MediaPlayerEntityFeature.VOLUME_MUTE
+        | MediaPlayerEntityFeature.VOLUME_STEP
         | MediaPlayerEntityFeature.SELECT_SOURCE
     )
     _attr_should_poll = False
@@ -253,6 +255,11 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Return the volume level of the output (0..1), or None if unknown."""
         return self.output.volume if self.output.volume is not None else None
 
+    @property
+    def is_volume_muted(self) -> bool | None:
+        """Return True if the output is muted."""
+        return self.output.muted
+
     async def async_turn_off(self) -> None:
         """Turn off the output (disconnect from any input)."""
         await self.output.turn_off()
@@ -264,6 +271,18 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
         await self.output.set_volume(volume)
+
+    async def async_mute_volume(self, mute: bool) -> None:  # noqa: FBT001
+        """Mute or unmute the output."""
+        await self.output.set_muted(mute)
+
+    async def async_volume_up(self) -> None:
+        """Step the volume up one unit."""
+        await self.output.volume_up_step(large=False)
+
+    async def async_volume_down(self) -> None:
+        """Step the volume down one unit."""
+        await self.output.volume_down_step(large=False)
 
     async def async_turn_on(self) -> None:
         """Turn on the player in UI without routing a source."""

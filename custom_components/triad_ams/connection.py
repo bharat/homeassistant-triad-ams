@@ -92,7 +92,7 @@ class TriadConnection:
 
         Args:
             output_channel: 1-based output channel index.
-            percentage: Volume as a float (0.0 = off, 1.0 = max), capped at 0.8.
+            percentage: Volume as a float (0.0 = off, 1.0 = max).
         Command: FF 55 04 03 1E <output> <value>  (output sent as 0-based)
         Value: 0x00 (off) to 0xA1 (max)
 
@@ -101,7 +101,8 @@ class TriadConnection:
             "Request to set volume for output %d to %.2f", output_channel, percentage
         )
 
-        capped = min(percentage, 0.8)
+        # Clamp to device range 0..1.0 (0x00..0xA1)
+        capped = max(0.0, min(percentage, 1.0))
         loop = asyncio.get_running_loop()
         now = loop.time()
         self._volume_debounce_values[output_channel] = capped
@@ -115,9 +116,8 @@ class TriadConnection:
             cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
             resp = await self._send_command(cmd)
             _LOGGER.info(
-                "Set volume for output %d to %.2f (capped %.2f, resp: %s)",
+                "Set volume for output %d to %.2f (resp: %s)",
                 output_channel,
-                percentage,
                 value,
                 resp,
             )
@@ -183,6 +183,74 @@ class TriadConnection:
             return value / 0xA1
         _LOGGER.error("Could not parse output volume from response: %s", resp)
         return 0.0
+
+    async def set_output_mute(self, output_channel: int, *, mute: bool) -> None:
+        """
+        Set mute state for an output channel.
+
+        Args:
+            output_channel: 1-based output channel index.
+            mute: True to mute, False to unmute.
+
+        Commands:
+            Mute on:  FF 55 03 03 17 <output>
+            Mute off: FF 55 03 03 18 <output>
+
+        """
+        base = "FF55030317" if mute else "FF55030318"
+        cmd = bytearray.fromhex(base) + bytes([output_channel - 1])
+        resp = await self._send_command(cmd)
+        _LOGGER.info(
+            "Set mute for output %d to %s (resp: %s)", output_channel, mute, resp
+        )
+
+    async def get_output_mute(self, output_channel: int) -> bool:
+        """
+        Return True if the output is muted.
+
+        Command: FF 55 04 03 17 F5 <output>
+        Response heuristics: match 'Mute : On/Off' or 'Muted' strings.
+
+        """
+        cmd = bytearray.fromhex("FF55040317F5") + bytes([output_channel - 1])
+        resp = await self._send_command(cmd)
+        m = re.search(r"Mute\s*:\s*(On|Off)", resp, re.IGNORECASE)
+        if m:
+            return m.group(1).lower() == "on"
+        if re.search(r"Muted\b", resp, re.IGNORECASE):
+            return True
+        if re.search(r"Unmuted\b", resp, re.IGNORECASE):
+            return False
+        _LOGGER.warning("Could not parse mute state from response: %s", resp)
+        return False
+
+    async def volume_step_up(self, output_channel: int, *, large: bool = False) -> None:
+        """Step the output volume up (small or large step)."""
+        cmd = bytearray.fromhex("FF55030315" if large else "FF55030313") + bytes(
+            [output_channel - 1]
+        )
+        resp = await self._send_command(cmd)
+        _LOGGER.debug(
+            "Volume step up (%s) for output %d (resp: %s)",
+            "large" if large else "small",
+            output_channel,
+            resp,
+        )
+
+    async def volume_step_down(
+        self, output_channel: int, *, large: bool = False
+    ) -> None:
+        """Step the output volume down (small or large step)."""
+        cmd = bytearray.fromhex("FF55030316" if large else "FF55030314") + bytes(
+            [output_channel - 1]
+        )
+        resp = await self._send_command(cmd)
+        _LOGGER.debug(
+            "Volume step down (%s) for output %d (resp: %s)",
+            "large" if large else "small",
+            output_channel,
+            resp,
+        )
 
     async def set_output_to_input(
         self, output_channel: int, input_channel: int

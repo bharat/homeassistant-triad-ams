@@ -24,6 +24,7 @@ class TriadAmsOutput:
         self.name = name
         self.connection = connection
         self._volume: float | None = None
+        self._muted: bool = False
         self._assigned_input: int | None = None  # None = no routed source
         # Tracks the most recent valid input assignment so we can restore it
         # when the output is turned back on.
@@ -96,6 +97,33 @@ class TriadAmsOutput:
             _LOGGER.exception("Failed to set volume for output %d", self.number)
 
     @property
+    def muted(self) -> bool:
+        """Return True if muted."""
+        return self._muted
+
+    async def set_muted(self, muted: bool) -> None:  # noqa: FBT001
+        """Set mute state on the device and update cache."""
+        try:
+            await self.connection.set_output_mute(self.number, mute=muted)
+            self._muted = muted
+        except OSError:
+            _LOGGER.exception("Failed to set mute for output %d", self.number)
+
+    async def volume_up_step(self, *, large: bool = False) -> None:
+        """Step the volume up (optionally large step)."""
+        try:
+            await self.connection.volume_step_up(self.number, large=large)
+        except OSError:
+            _LOGGER.exception("Failed to step volume up for output %d", self.number)
+
+    async def volume_down_step(self, *, large: bool = False) -> None:
+        """Step the volume down (optionally large step)."""
+        try:
+            await self.connection.volume_step_down(self.number, large=large)
+        except OSError:
+            _LOGGER.exception("Failed to step volume down for output %d", self.number)
+
+    @property
     def is_on(self) -> bool:
         """Return True if the player is on in the UI (may not be routed)."""
         return self._ui_on
@@ -126,6 +154,7 @@ class TriadAmsOutput:
         """Refresh the state from the device (on demand only)."""
         try:
             self._volume = await self.connection.get_output_volume(self.number)
+            self._muted = await self.connection.get_output_mute(self.number)
             assigned_input = await self.connection.get_output_source(self.number)
             # assigned_input is 1-based; validate against INPUT_COUNT
             if assigned_input is not None and 1 <= assigned_input <= INPUT_COUNT:

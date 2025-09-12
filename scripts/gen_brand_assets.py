@@ -24,7 +24,7 @@ def scale_points(
     points: Iterable[tuple[float, float]], s: float
 ) -> list[tuple[int, int]]:
     """Scale 512-grid points by ``s`` and return integer pixel coords."""
-    return [(int(round(x * s)), int(round(y * s))) for x, y in points]
+    return [(round(x * s), round(y * s)) for x, y in points]
 
 
 def draw_mark(draw: ImageDraw.ImageDraw, s: float) -> None:
@@ -39,8 +39,8 @@ def draw_mark(draw: ImageDraw.ImageDraw, s: float) -> None:
 
     # Base bars (rounded appearance approximated by simple rectangles at small sizes)
     def rect(x: float, y: float, w: float, h: float) -> tuple[int, int, int, int]:
-        x1, y1 = int(round(x * s)), int(round(y * s))
-        x2, y2 = int(round((x + w) * s)), int(round((y + h) * s))
+        x1, y1 = round(x * s), round(y * s)
+        x2, y2 = round((x + w) * s), round((y + h) * s)
         return (x1, y1, x2, y2)
 
     draw.rectangle(rect(88, 426, 336, 22), fill=fill)
