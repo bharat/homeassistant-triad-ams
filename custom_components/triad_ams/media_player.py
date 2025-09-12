@@ -271,18 +271,24 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
         await self.output.set_volume(volume)
+        self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:  # noqa: FBT001
         """Mute or unmute the output."""
         await self.output.set_muted(mute)
+        self.async_write_ha_state()
 
     async def async_volume_up(self) -> None:
         """Step the volume up one unit."""
         await self.output.volume_up_step(large=False)
+        await self.output.refresh()
+        self.async_write_ha_state()
 
     async def async_volume_down(self) -> None:
         """Step the volume down one unit."""
         await self.output.volume_down_step(large=False)
+        await self.output.refresh()
+        self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
         """Turn on the player in UI without routing a source."""
