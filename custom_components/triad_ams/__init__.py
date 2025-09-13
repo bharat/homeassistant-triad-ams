@@ -52,5 +52,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         connection: TriadConnection = entry.runtime_data
+        # Stop periodic polling before disconnecting the socket
+        try:
+            connection.stop_polling()
+        except Exception:
+            _LOGGER.exception("Error stopping poll loop")
         await connection.disconnect()
     return unload_ok

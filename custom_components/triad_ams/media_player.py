@@ -103,6 +103,12 @@ async def async_setup_entry(
         ):
             dev_reg.async_remove_device(device.id)
 
+    # Start or update a rolling poll that refreshes one output periodically
+    try:
+        connection.start_polling([o.refresh_and_notify for o in outputs], interval=30)
+    except Exception:
+        _LOGGER.exception("Failed to start rolling poll")
+
 
 class TriadAmsMediaPlayer(MediaPlayerEntity):
     """Media player entity representing a Triad AMS output."""
@@ -129,6 +135,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._input_links = input_links
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
+        self._output_unsub: callable | None = None
         # Keep per-entry unique entity IDs stable
         self._attr_unique_id = f"{entry.entry_id}_output_{output.number}"
         # Entity name part; with has_entity_name this becomes the suffix
@@ -168,6 +175,12 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     @callback
     def _handle_linked_state_change(self, _event: object) -> None:
         """Handle state changes from the linked source entity on the event loop."""
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_output_poll_update(self) -> None:
+        """Handle updates from the rolling poll (volume/mute/source changes)."""
+        self._update_link_subscription()
         self.async_write_ha_state()
 
     def _linked_attr(self, key: str) -> Any | None:
@@ -243,7 +256,15 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: write initial state."""
         self._update_link_subscription()
+        # Subscribe to output refresh notifications (rolling poll)
+        self._output_unsub = self.output.add_listener(self._handle_output_poll_update)
         self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Entity will be removed from Home Assistant: clean up."""
+        if self._output_unsub is not None:
+            self._output_unsub()
+            self._output_unsub = None
 
     @property
     def is_on(self) -> bool:

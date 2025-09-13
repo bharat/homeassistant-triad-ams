@@ -1,6 +1,7 @@
 """Data models for Triad AMS integration."""
 
 import asyncio
+import contextlib
 import logging
 
 from .connection import TriadConnection
@@ -38,6 +39,28 @@ class TriadAmsOutput:
         self._outputs = (
             outputs  # Optional: reference to all outputs for trigger zone logic
         )
+        # Lightweight listener callbacks invoked after polling refreshes state
+        self._listeners: list[callable] = []
+
+    # ---- Listener management for state updates ----
+    def add_listener(self, cb: callable) -> callable:
+        """Register a callback invoked after refresh; returns an unsubscribe."""
+        self._listeners.append(cb)
+
+        def _unsub() -> None:
+            with contextlib.suppress(ValueError):
+                self._listeners.remove(cb)
+
+        return _unsub
+
+    def _notify_listeners(self) -> None:
+        for cb in list(self._listeners):
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception(
+                    "Error in TriadAmsOutput listener for output %d", self.number
+                )
 
     @property
     def source_name(self) -> str | None:
@@ -172,3 +195,8 @@ class TriadAmsOutput:
                 self._ui_on = False
         except OSError:
             _LOGGER.exception("Failed to refresh output %d", self.number)
+
+    async def refresh_and_notify(self) -> None:
+        """Refresh state and notify listeners (used by rolling poll)."""
+        await self.refresh()
+        self._notify_listeners()

@@ -80,7 +80,7 @@ class TriadConnection:
 
     async def set_output_volume(self, output_channel: int, percentage: float) -> None:
         """
-        Set volume with simple rate limit: immediate send, max 1/500ms, trailing final.
+        Set volume immediately without debouncing.
 
         Args:
             output_channel: 1-based output channel index.
@@ -106,6 +106,57 @@ class TriadConnection:
             capped,
             resp,
         )
+
+    # --- Rolling poll/keepalive management ---
+    _poll_task: asyncio.Task | None = None
+    _pollers: list[callable] | None = None  # [async callables: () -> Awaitable[None]]
+    _poll_index: int = 0
+
+    def start_polling(self, pollers: list[callable], *, interval: float = 6.0) -> None:
+        """
+        Start or update a rolling poll over provided async pollers.
+
+        Each interval, the next poller is awaited, providing a steady
+        keep-alive and gradual state refresh across outputs.
+        """
+        self._pollers = list(pollers)
+        if self._poll_task is not None and not self._poll_task.done():
+            # Already running; just update the poller set
+            return
+
+        async def _loop() -> None:
+            _LOGGER.debug("Starting Triad rolling poll loop (interval=%.1fs)", interval)
+            try:
+                while True:
+                    try:
+                        # If we have no pollers, sleep to provide soft keepalive cadence
+                        if not self._pollers:
+                            await asyncio.sleep(interval)
+                        else:
+                            # Round-robin selection
+                            pollers_local = self._pollers
+                            idx = self._poll_index % len(pollers_local)
+                            self._poll_index += 1
+                            poller = pollers_local[idx]
+                            await poller()  # one output refresh
+                            await asyncio.sleep(interval)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        _LOGGER.exception("Error during rolling poll; continuing")
+                        await asyncio.sleep(interval)
+            finally:
+                _LOGGER.debug("Triad rolling poll loop stopped")
+
+        self._poll_task = asyncio.create_task(_loop(), name="triad_ams_poll")
+
+    def stop_polling(self) -> None:
+        """Stop the rolling poll task, if running."""
+        if self._poll_task is not None:
+            self._poll_task.cancel()
+            self._poll_task = None
+        self._pollers = None
+        self._poll_index = 0
 
     async def get_output_volume(self, output_channel: int) -> float:
         """
