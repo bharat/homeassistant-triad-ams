@@ -14,13 +14,8 @@ from .const import INPUT_COUNT
 _LOGGER = logging.getLogger(__name__)
 
 
-VOLUME_DEBOUNCE_WINDOW = 0.5
-
-
 class TriadConnection:
     """Manage a persistent connection to the Triad AMS device."""
-
-    # Instance-scoped debounce/throttle state for volume per output
 
     def __init__(self, host: str, port: int) -> None:
         """Initialize a persistent connection to the Triad AMS device."""
@@ -29,11 +24,6 @@ class TriadConnection:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
-        # Debounce state is per-connection to avoid cross-instance interference
-        self._volume_debounce_tasks: dict[int, asyncio.Task] = {}
-        self._volume_debounce_values: dict[int, float] = {}
-        self._volume_debounce_last_sent: dict[int, float] = {}
-        self._volume_debounce_last_value_sent: dict[int, float] = {}
 
     async def connect(self) -> None:
         """Establish a connection to the Triad AMS device if not already connected."""
@@ -105,59 +95,17 @@ class TriadConnection:
 
         # Clamp to device range 0..1.0 (0x00..0xA1)
         capped = max(0.0, min(percentage, 1.0))
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        self._volume_debounce_values[output_channel] = capped
 
-        async def _send_latest() -> None:
-            value = self._volume_debounce_values[output_channel]
-            self._volume_debounce_last_sent[output_channel] = loop.time()
-            self._volume_debounce_last_value_sent[output_channel] = value
-            val = int(value * 0xA1)
-            val = max(0, min(val, 0xA1))
-            cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
-            resp = await self._send_command(cmd)
-            _LOGGER.info(
-                "Set volume for output %d to %.2f (resp: %s)",
-                output_channel,
-                value,
-                resp,
-            )
-
-        last_sent = self._volume_debounce_last_sent.get(output_channel, 0.0)
-        pending = self._volume_debounce_tasks.get(output_channel)
-
-        # 1) Send immediately if window allows
-        if now - last_sent >= VOLUME_DEBOUNCE_WINDOW:
-            if pending and not pending.done():
-                pending.cancel()
-            self._volume_debounce_tasks[output_channel] = asyncio.create_task(
-                _send_latest()
-            )
-
-        # 2) Always (re)schedule trailing send to guarantee final update
-        if pending and not pending.done():
-            pending.cancel()
-
-        async def trailing() -> None:
-            try:
-                # Wait until the debounce window has elapsed since last send
-                while True:
-                    gap = loop.time() - self._volume_debounce_last_sent.get(
-                        output_channel, 0.0
-                    )
-                    if gap >= VOLUME_DEBOUNCE_WINDOW:
-                        break
-                    await asyncio.sleep(VOLUME_DEBOUNCE_WINDOW - gap)
-                # Skip if no change since last send
-                if self._volume_debounce_last_value_sent.get(
-                    output_channel
-                ) != self._volume_debounce_values.get(output_channel):
-                    await _send_latest()
-            except asyncio.CancelledError:
-                pass
-
-        self._volume_debounce_tasks[output_channel] = asyncio.create_task(trailing())
+        val = int(capped * 0xA1)
+        val = max(0, min(val, 0xA1))
+        cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
+        resp = await self._send_command(cmd)
+        _LOGGER.info(
+            "Set volume for output %d to %.2f (resp: %s)",
+            output_channel,
+            capped,
+            resp,
+        )
 
     async def get_output_volume(self, output_channel: int) -> float:
         """

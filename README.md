@@ -25,7 +25,6 @@ Features
   - Optionally set a link for each input
 - Safe device handling
   - Serialized command writes
-  - Debounced volume writes
   - Trigger zone on when the first output is routed; off when the last output disconnects
   - Remembers and restores the last input when a zone is turned back on
 
