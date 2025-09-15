@@ -1,11 +1,10 @@
 """Data models for Triad AMS integration."""
 
-import asyncio
 import contextlib
 import logging
 
-from .connection import TriadConnection
-from .const import INPUT_COUNT
+from .const import INPUT_COUNT, VOLUME_STEPS
+from .coordinator import TriadCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,14 +16,14 @@ class TriadAmsOutput:
         self,
         number: int,
         name: str,
-        connection: TriadConnection,
+        coordinator: TriadCoordinator,
         outputs: list["TriadAmsOutput"] | None = None,
         input_names: dict[int, str] | None = None,
     ) -> None:
         """Initialize a Triad AMS output channel."""
         self.number = number  # 1-based output channel
         self.name = name
-        self.connection = connection
+        self.coordinator = coordinator
         self._volume: float | None = None
         self._muted: bool = False
         self._assigned_input: int | None = None  # None = no routed source
@@ -36,10 +35,8 @@ class TriadAmsOutput:
             self.input_names = dict(sorted(input_names.items()))
         else:
             self.input_names = {i + 1: f"Input {i + 1}" for i in range(INPUT_COUNT)}
-        self._outputs = (
-            outputs  # Optional: reference to all outputs for trigger zone logic
-        )
-        # Lightweight listener callbacks invoked after polling refreshes state
+        self._outputs = outputs
+        # Lightweight listener callbacks invoked after refreshes
         self._listeners: list[callable] = []
 
     # ---- Listener management for state updates ----
@@ -95,10 +92,8 @@ class TriadAmsOutput:
         """Set the output to the given input channel (1-based)."""
         try:
             # If all outputs are off, enable trigger zone first
-            if self._outputs and not any(o.has_source for o in self._outputs):
-                await self.connection.set_trigger_zone(on=True)
-            # Connection methods expect 1-based indices
-            await self.connection.set_output_to_input(self.number, input_id)
+            # Coordinator handles trigger-zone orchestration
+            await self.coordinator.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
             # Remember this assignment so we can restore it later
             self._last_assigned_input = input_id
@@ -115,8 +110,15 @@ class TriadAmsOutput:
     async def set_volume(self, value: float) -> None:
         """Set the output volume on the device and update cache."""
         try:
-            await self.connection.set_output_volume(self.number, value)
-            self._volume = value
+            # round() returns float; cast to int to meet device step type
+            steps = round(float(value) * VOLUME_STEPS)
+            steps = max(0, min(steps, VOLUME_STEPS))
+            # Treat any request of 0 as the minimum audible step to avoid 'Audio Off'
+            if steps == 0:
+                steps = 1
+            quantized = steps / VOLUME_STEPS
+            await self.coordinator.set_output_volume(self.number, quantized)
+            self._volume = quantized
         except OSError:
             _LOGGER.exception("Failed to set volume for output %d", self.number)
 
@@ -128,7 +130,7 @@ class TriadAmsOutput:
     async def set_muted(self, muted: bool) -> None:  # noqa: FBT001
         """Set mute state on the device and update cache."""
         try:
-            await self.connection.set_output_mute(self.number, mute=muted)
+            await self.coordinator.set_output_mute(self.number, mute=muted)
             self._muted = muted
         except OSError:
             _LOGGER.exception("Failed to set mute for output %d", self.number)
@@ -136,14 +138,14 @@ class TriadAmsOutput:
     async def volume_up_step(self, *, large: bool = False) -> None:
         """Step the volume up (optionally large step)."""
         try:
-            await self.connection.volume_step_up(self.number, large=large)
+            await self.coordinator.volume_step_up(self.number, large=large)
         except OSError:
             _LOGGER.exception("Failed to step volume up for output %d", self.number)
 
     async def volume_down_step(self, *, large: bool = False) -> None:
         """Step the volume down (optionally large step)."""
         try:
-            await self.connection.volume_step_down(self.number, large=large)
+            await self.coordinator.volume_step_down(self.number, large=large)
         except OSError:
             _LOGGER.exception("Failed to step volume down for output %d", self.number)
 
@@ -158,16 +160,9 @@ class TriadAmsOutput:
             # Preserve current assignment so we can restore it when turning back on
             if self._assigned_input is not None:
                 self._last_assigned_input = self._assigned_input
-            await self.connection.disconnect_output(self.number)
+            await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
-            # If this was the last output on, disable trigger zone
-            if self._outputs and not any(o.has_source for o in self._outputs):
-                # Give the device a brief moment to settle so its
-                # response to the disconnect doesn't get read as the
-                # response to the trigger-zone command.
-                await asyncio.sleep(0.2)
-                await self.connection.set_trigger_zone(on=False)
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
@@ -181,9 +176,9 @@ class TriadAmsOutput:
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
         try:
-            self._volume = await self.connection.get_output_volume(self.number)
-            self._muted = await self.connection.get_output_mute(self.number)
-            assigned_input = await self.connection.get_output_source(self.number)
+            self._volume = await self.coordinator.get_output_volume(self.number)
+            self._muted = await self.coordinator.get_output_mute(self.number)
+            assigned_input = await self.coordinator.get_output_source(self.number)
             # assigned_input is 1-based; validate against INPUT_COUNT
             if assigned_input is not None and 1 <= assigned_input <= INPUT_COUNT:
                 self._assigned_input = assigned_input
@@ -197,6 +192,6 @@ class TriadAmsOutput:
             _LOGGER.exception("Failed to refresh output %d", self.number)
 
     async def refresh_and_notify(self) -> None:
-        """Refresh state and notify listeners (used by rolling poll)."""
+        """Refresh state and notify listeners."""
         await self.refresh()
         self._notify_listeners()

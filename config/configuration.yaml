@@ -10,6 +10,7 @@ logger:
   default: info
   logs:
     custom_components.triad_ams: debug
+    homeassistant.components.sonos: error
 
 sonos:
   media_player:

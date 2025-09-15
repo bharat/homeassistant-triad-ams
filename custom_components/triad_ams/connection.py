@@ -5,13 +5,16 @@ Provides async helpers to control and query device state.
 """
 
 import asyncio
+import contextlib
 import logging
 import re
 from typing import cast
 
-from .const import INPUT_COUNT
+from .const import INPUT_COUNT, VOLUME_STEPS
+from .volume_lut import step_for_db
 
 _LOGGER = logging.getLogger(__name__)
+TRACE = 5  # Home Assistant supports 'trace' level; use numeric 5
 
 
 class TriadConnection:
@@ -28,11 +31,14 @@ class TriadConnection:
     async def connect(self) -> None:
         """Establish a connection to the Triad AMS device if not already connected."""
         if self._writer is not None:
+            _LOGGER.log(TRACE, "connect(): already connected; skipping")
             return
+        _LOGGER.log(TRACE, "connect(): begin to %s:%s", self.host, self.port)
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
         _LOGGER.info("Connected to Triad AMS at %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
         await asyncio.sleep(0.2)
+        _LOGGER.log(TRACE, "connect(): ready (post-sleep)")
 
     async def disconnect(self) -> None:
         """Close the connection to the Triad AMS device if open."""
@@ -43,40 +49,97 @@ class TriadConnection:
             self._writer = None
             _LOGGER.info("Disconnected from Triad AMS")
 
-    async def _send_command(self, command: bytes) -> str:
+    def close_nowait(self) -> None:
+        """Close the transport without awaiting shutdown (non-blocking)."""
+        _LOGGER.log(
+            TRACE, "close_nowait(): writer is %s", "present" if self._writer else "None"
+        )
+        if self._writer is not None:
+            with contextlib.suppress(Exception):
+                self._writer.close()
+        self._reader = None
+        self._writer = None
+        _LOGGER.log(TRACE, "close_nowait(): cleared reader/writer")
+
+    async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:
         """
         Send a command and return the response string.
 
         Adds a small inter-command delay, logs raw traffic, and applies a
         reasonable timeout to reads.
         """
+        _LOGGER.log(TRACE, "_send_command(): waiting for lock")
         async with self._lock:
+            _LOGGER.log(TRACE, "_send_command(): acquired lock")
             if self._writer is None or self._reader is None:
+                _LOGGER.log(
+                    TRACE, "_send_command(): transport missing; calling connect()"
+                )
                 await self.connect()
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
             reader = cast("asyncio.StreamReader", self._reader)
             _LOGGER.debug("Sending raw bytes: %s", command.hex())
+            _LOGGER.log(TRACE, "_send_command(): writing %d bytes", len(command))
             writer.write(command)
+            _LOGGER.log(TRACE, "_send_command(): before drain()")
             await writer.drain()
-            # Add a small delay between commands for device tolerance
-            await asyncio.sleep(0.2)
-            try:
-                response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=10)
-            except TimeoutError:
-                _LOGGER.exception(
-                    "Timeout waiting for response to command: %s", command.hex()
-                )
-                return ""
-            except asyncio.IncompleteReadError as e:
-                _LOGGER.exception(
-                    "Incomplete read waiting for response to command: %s, partial=%r",
-                    command.hex(),
-                    e.partial,
-                )
-                return e.partial.decode(errors="replace").strip()
+            _LOGGER.log(TRACE, "_send_command(): after drain()")
+            # Add a very small delay for device tolerance
+            await asyncio.sleep(0.1)
+            _LOGGER.log(TRACE, "_send_command(): awaiting response")
+            response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=5)
+            _LOGGER.log(TRACE, "_send_command(): received %d bytes", len(response))
             _LOGGER.debug("Raw response: %r", response)
-            return response.decode(errors="replace").strip("\x00").strip()
+            text = response.decode(errors="replace").strip("\x00").strip()
+            # Evaluate the first (and only) frame. If it doesn't match the
+            # expected pattern, allow exactly one skip for an unsolicited
+            # AudioSense event, then re-evaluate the next frame.
+            if (
+                expect is not None
+                and text
+                and not re.search(expect, text, re.IGNORECASE)
+            ):
+                if re.search(
+                    r"^AudioSense:Input\[\d+\]\s*:\s*(0|1)\s*$",
+                    text,
+                    re.IGNORECASE,
+                ):
+                    _LOGGER.debug("Skipping unsolicited AudioSense event: %s", text)
+                    response = await asyncio.wait_for(
+                        reader.readuntil(b"\x00"), timeout=5
+                    )
+                    _LOGGER.debug("Raw response (post-AudioSense): %r", response)
+                    text = response.decode(errors="replace").strip("\x00").strip()
+                # After optional skip, if still not matching -> error
+                if text and not re.search(expect, text, re.IGNORECASE):
+                    _LOGGER.warning("Unexpected response: %s", text)
+                    self.close_nowait()
+                    err_msg = "Unexpected response from device"
+                    raise OSError(err_msg)
+            # Detect device-side command error or protocol desync (nulls)
+            if text == "" or re.search(r"^command\s+error$", text, re.IGNORECASE):
+                _LOGGER.warning(
+                    "Device returned error/empty response for command: %s; "
+                    "resetting connection",
+                    command.hex(),
+                )
+                # Proactively drop the connection without blocking
+                _LOGGER.log(TRACE, "_send_command(): before close_nowait() on error")
+                self.close_nowait()
+                _LOGGER.log(TRACE, "_send_command(): after close_nowait() on error")
+                msg = "Triad command error or empty response"
+                raise OSError(msg)
+            return text
+
+    async def send_raw(self, command: bytes) -> str:
+        """
+        Send a raw command and return the decoded response string.
+
+        Intended for diagnostic/debug usage. Uses the same transport, lock,
+        and parsing behavior as all other commands.
+        """
+        return await self._send_command(command)
 
     async def set_output_volume(self, output_channel: int, percentage: float) -> None:
         """
@@ -86,77 +149,27 @@ class TriadConnection:
             output_channel: 1-based output channel index.
             percentage: Volume as a float (0.0 = off, 1.0 = max).
         Command: FF 55 04 03 1E <output> <value>  (output sent as 0-based)
-        Value: 0x00 (off) to 0xA1 (max)
+        Value: 0x00 (off) to 0x64 (max)
 
         """
         _LOGGER.debug(
             "Request to set volume for output %d to %.2f", output_channel, percentage
         )
 
-        # Clamp to device range 0..1.0 (0x00..0xA1)
+        # Clamp to device range 0..1.0 (0x00..0x64)
         capped = max(0.0, min(percentage, 1.0))
 
-        val = int(capped * 0xA1)
-        val = max(0, min(val, 0xA1))
+        # Quantize to nearest device step for consistency (0..VOLUME_STEPS)
+        val = round(capped * VOLUME_STEPS)
+        val = max(0, min(val, VOLUME_STEPS))
         cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"Output\s+Volume|Volume\s*:")
         _LOGGER.info(
             "Set volume for output %d to %.2f (resp: %s)",
             output_channel,
             capped,
             resp,
         )
-
-    # --- Rolling poll/keepalive management ---
-    _poll_task: asyncio.Task | None = None
-    _pollers: list[callable] | None = None  # [async callables: () -> Awaitable[None]]
-    _poll_index: int = 0
-
-    def start_polling(self, pollers: list[callable], *, interval: float = 6.0) -> None:
-        """
-        Start or update a rolling poll over provided async pollers.
-
-        Each interval, the next poller is awaited, providing a steady
-        keep-alive and gradual state refresh across outputs.
-        """
-        self._pollers = list(pollers)
-        if self._poll_task is not None and not self._poll_task.done():
-            # Already running; just update the poller set
-            return
-
-        async def _loop() -> None:
-            _LOGGER.debug("Starting Triad rolling poll loop (interval=%.1fs)", interval)
-            try:
-                while True:
-                    try:
-                        # If we have no pollers, sleep to provide soft keepalive cadence
-                        if not self._pollers:
-                            await asyncio.sleep(interval)
-                        else:
-                            # Round-robin selection
-                            pollers_local = self._pollers
-                            idx = self._poll_index % len(pollers_local)
-                            self._poll_index += 1
-                            poller = pollers_local[idx]
-                            await poller()  # one output refresh
-                            await asyncio.sleep(interval)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        _LOGGER.exception("Error during rolling poll; continuing")
-                        await asyncio.sleep(interval)
-            finally:
-                _LOGGER.debug("Triad rolling poll loop stopped")
-
-        self._poll_task = asyncio.create_task(_loop(), name="triad_ams_poll")
-
-    def stop_polling(self) -> None:
-        """Stop the rolling poll task, if running."""
-        if self._poll_task is not None:
-            self._poll_task.cancel()
-            self._poll_task = None
-        self._pollers = None
-        self._poll_index = 0
 
     async def get_output_volume(self, output_channel: int) -> float:
         """
@@ -170,18 +183,18 @@ class TriadConnection:
 
         """
         cmd = bytearray.fromhex("FF5504031EF5") + bytes([output_channel - 1])
-        resp = await self._send_command(cmd)
-        m = re.search(r"Volume : (-?\d+\.\d+|-?\d+)", resp)
-        if m:
-            # Device returns dB; convert to 0..1 scale
-            # Assume -80 dB is min and 0 dB is max
-            db = float(m.group(1))
-            # Clamp and scale: -80 dB -> 0.0, 0 dB -> 1.0
-            return max(0.0, min(1.0, (db + 80) / 80))
-        m_hex = re.search(r"Volume : 0x([0-9A-Fa-f]+)", resp)
+        resp = await self._send_command(cmd, expect=r"Volume\s*:")
+        # Prefer raw hex value if present (exact mapping to slider scale)
+        m_hex = re.search(r"Volume\s*:\s*0x([0-9A-Fa-f]+)", resp)
         if m_hex:
             value = int(m_hex.group(1), 16)
-            return value / 0xA1
+            return max(0.0, min(1.0, value / VOLUME_STEPS))
+        # Otherwise parse dB and map to nearest step using measured LUT
+        m = re.search(r"Volume\s*:\s*(-?\d+(?:\.\d+)?)", resp)
+        if m:
+            db = float(m.group(1))
+            step = step_for_db(db)
+            return step / VOLUME_STEPS
         _LOGGER.error("Could not parse output volume from response: %s", resp)
         return 0.0
 
@@ -218,7 +231,7 @@ class TriadConnection:
 
         """
         cmd = bytearray.fromhex("FF55040317F5") + bytes([output_channel - 1])
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"Mute")
         # Try to capture the token after "Mute" or "Mute status"
         m = re.search(r"Mute(?:\s+status)?\s*:\s*([A-Za-z0-9]+)", resp, re.IGNORECASE)
         if m:
@@ -242,7 +255,7 @@ class TriadConnection:
         cmd = bytearray.fromhex("FF55030315" if large else "FF55030313") + bytes(
             [output_channel - 1]
         )
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
         _LOGGER.debug(
             "Volume step up (%s) for output %d (resp: %s)",
             "large" if large else "small",
@@ -257,7 +270,7 @@ class TriadConnection:
         cmd = bytearray.fromhex("FF55030316" if large else "FF55030314") + bytes(
             [output_channel - 1]
         )
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
         _LOGGER.debug(
             "Volume step down (%s) for output %d (resp: %s)",
             "large" if large else "small",
@@ -280,7 +293,7 @@ class TriadConnection:
         cmd = bytearray.fromhex("FF5504031D") + bytes(
             [output_channel - 1, input_channel - 1]
         )
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"Trigger|Set\s+.*")
         # Be tolerant of varying response strings
         _LOGGER.info(
             "Set output %d to input %d (resp: %s)",
@@ -301,7 +314,10 @@ class TriadConnection:
 
         """
         cmd = bytearray.fromhex("FF5504031DF5") + bytes([output_channel - 1])
-        resp = await self._send_command(cmd)
+        # Accept "Audio Off", "Input Source : input N" or device 'Set ...' echoes
+        resp = await self._send_command(
+            cmd, expect=r"(Audio\s+Off|Input\s+Source|Set\s+.*)"
+        )
         if "Audio Off" in resp:
             return None
         m = re.search(r"input (\d+)", resp)
@@ -320,7 +336,7 @@ class TriadConnection:
 
         """
         cmd = bytearray.fromhex("FF5503055000" if on else "FF5503055100")
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"Max\s+Volume|0x|dB|Set\s+.*")
         _LOGGER.info("Set trigger zone to %s (resp: %s)", on, resp)
 
     async def disconnect_output(self, output_channel: int) -> None:
@@ -333,7 +349,7 @@ class TriadConnection:
 
         """
         cmd = bytearray.fromhex("FF5504031D") + bytes([output_channel - 1, INPUT_COUNT])
-        resp = await self._send_command(cmd)
+        resp = await self._send_command(cmd, expect=r"Start\s+Vol|0x|dB|Set\s+.*")
         # Tolerate varied responses and log outcome
         if "Audio Off" in resp:
             _LOGGER.info("Disconnected output %d (resp: %s)", output_channel, resp)
