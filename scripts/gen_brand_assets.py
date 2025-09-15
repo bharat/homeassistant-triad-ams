@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Generate PNG brand assets matching the SVG geometry.
 

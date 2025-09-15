@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.typing import ConfigType
 
-from .connection import TriadConnection
 from .const import DOMAIN
+from .coordinator import TriadCoordinator
 
 PLATFORMS = ["media_player"]
 
@@ -34,11 +34,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get connection info from entry
     host = entry.data["host"]
     port = entry.data["port"]
-    connection = TriadConnection(host, port)
-    entry.runtime_data = connection
+    coordinator = TriadCoordinator(host, port)
+    entry.runtime_data = coordinator
+    # Start the coordinator worker so entities can execute commands immediately
+    try:
+        await coordinator.start()
+    except Exception:
+        _LOGGER.exception("Failed to start TriadCoordinator")
     # Reload entities automatically when options change
     entry.async_on_unload(entry.add_update_listener(_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     return True
 
 
@@ -51,11 +57,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        connection: TriadConnection = entry.runtime_data
-        # Stop periodic polling before disconnecting the socket
+        coordinator: TriadCoordinator = entry.runtime_data
         try:
-            connection.stop_polling()
+            await coordinator.stop()
         except Exception:
-            _LOGGER.exception("Error stopping poll loop")
-        await connection.disconnect()
+            _LOGGER.exception("Error stopping coordinator")
+        await coordinator.disconnect()
     return unload_ok

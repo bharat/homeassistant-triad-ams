@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +20,6 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .connection import TriadConnection
 from .const import DOMAIN
 from .models import TriadAmsOutput
 
@@ -40,17 +38,8 @@ async def async_setup_entry(
         entry.data,
         entry.options,
     )
-    # Use the connection attached by __init__.py in entry.runtime_data
-    connection: TriadConnection = entry.runtime_data
-    if connection is None:
-        _LOGGER.debug(
-            "No runtime connection found; creating TriadConnection for host=%s, "
-            "port=%s",
-            entry.data["host"],
-            entry.data["port"],
-        )
-        connection = TriadConnection(entry.data["host"], entry.data["port"])
-        entry.runtime_data = connection
+    # Use the coordinator attached by __init__.py in entry.runtime_data
+    coordinator = entry.runtime_data
 
     # Use only the minimal active channel lists from options
     active_inputs: list[int] = entry.options.get("active_inputs", [])
@@ -74,9 +63,18 @@ async def async_setup_entry(
     outputs: list[TriadAmsOutput] = []
     for ch in sorted(active_outputs):
         name = f"Output {ch}"
-        outputs.append(TriadAmsOutput(ch, name, connection, outputs, input_names))
+        outputs.append(TriadAmsOutput(ch, name, coordinator, outputs, input_names))
 
-    await asyncio.gather(*(output.refresh() for output in outputs))
+    # Ensure coordinator worker is running before any refresh enqueues commands
+    try:
+        await coordinator.start()
+    except Exception:
+        _LOGGER.exception("Failed to start TriadCoordinator")
+
+    # Register outputs for lightweight rolling polling
+    for output in outputs:
+        coordinator.register_output(output)
+
     entities = [TriadAmsMediaPlayer(output, entry, input_links) for output in outputs]
     async_add_entities(entities)
     _LOGGER.debug(
@@ -102,12 +100,6 @@ async def async_setup_entry(
             registry, device.id, include_disabled_entities=True
         ):
             dev_reg.async_remove_device(device.id)
-
-    # Start or update a rolling poll that refreshes one output periodically
-    try:
-        connection.start_polling([o.refresh_and_notify for o in outputs], interval=30)
-    except Exception:
-        _LOGGER.exception("Failed to start rolling poll")
 
 
 class TriadAmsMediaPlayer(MediaPlayerEntity):
@@ -245,6 +237,11 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Select a source by friendly name."""
         input_id = self.output.source_id_for_name(source)
         if input_id is not None:
+            _LOGGER.info(
+                "Selecting source '%s' for output %d",
+                source,
+                self.output.number,
+            )
             await self.output.set_source(input_id)
             # Update link subscription first so derived attributes reflect
             # the new linked source on this state write.
@@ -254,9 +251,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Unknown source name: %s", source)
 
     async def async_added_to_hass(self) -> None:
-        """Entity added to Home Assistant: write initial state."""
+        """Entity added to Home Assistant: seed and write initial state."""
         self._update_link_subscription()
-        # Subscribe to output refresh notifications (rolling poll)
+        # One-shot refresh to seed state without enabling background polling
+        try:
+            await self.output.refresh()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Initial refresh failed for output %d", self.output.number)
+        # Keep listener wiring (no background poll currently triggers it)
         self._output_unsub = self.output.add_listener(self._handle_output_poll_update)
         self.async_write_ha_state()
 
@@ -283,6 +285,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     async def async_turn_off(self) -> None:
         """Turn off the output (disconnect from any input)."""
+        _LOGGER.info("Turning OFF output %d", self.output.number)
         await self.output.turn_off()
         # Unsubscribe before writing state so we don't expose linked metadata
         # while the output is off.
@@ -291,30 +294,33 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
+        _LOGGER.info("Setting volume for output %d to %.2f", self.output.number, volume)
         await self.output.set_volume(volume)
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:  # noqa: FBT001
         """Mute or unmute the output."""
+        _LOGGER.info("Setting mute for output %d to %s", self.output.number, mute)
         await self.output.set_muted(mute)
         self.async_write_ha_state()
 
     async def async_volume_up(self) -> None:
         """Step the volume up one unit."""
+        _LOGGER.info("Volume UP (step) on output %d", self.output.number)
         await self.output.volume_up_step(large=False)
         await self.output.refresh()
         self.async_write_ha_state()
 
     async def async_volume_down(self) -> None:
         """Step the volume down one unit."""
+        _LOGGER.info("Volume DOWN (step) on output %d", self.output.number)
         await self.output.volume_down_step(large=False)
         await self.output.refresh()
         self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
         """Turn on the player in UI without routing a source."""
+        _LOGGER.info("Turning ON output %d", self.output.number)
         await self.output.turn_on()
         self._update_link_subscription()
         self.async_write_ha_state()
-
-    # No media attribute proxying in simplified flow
