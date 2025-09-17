@@ -1,4 +1,6 @@
-Triad AMS for Home Assistant [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration) [![Validate](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml) [![Lint](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml) [![Release](https://img.shields.io/github/v/release/bharat/homeassistant-triad-ams?sort=semver)](https://github.com/bharat/homeassistant-triad-ams/releases)
+
+Triad AMS for Home Assistant
 ============================
 
 A custom Home Assistant integration for controlling a Triad AMS 8x8 audio matrix switch over TCP. The integration exposes one media player entity per active output zone and lets you select a routed input, adjust volume, and optionally mirror metadata from an upstream media player entity.
@@ -30,15 +32,13 @@ Features
 
 Installation (HACS)
 -------------------
-This repository is designed to be installed via HACS as a custom repository.
+This integration is available directly in HACS under the Integration category.
 
-- HACS quick‑add link:
-  - https://my.home-assistant.io/redirect/hacs_repository/?owner=bharat&repository=homeassistant-triad-ams&category=integration
-- Or, in Home Assistant:
-  1. HACS → Integrations → “+” → Three‑dot menu → “Custom repositories”
-  2. URL: https://github.com/bharat/homeassistant-triad-ams • Category: Integrations → Add
-  3. Search for “Triad AMS” → Install
-  4. Restart Home Assistant if prompted
+1. In Home Assistant, go to HACS → Integrations.
+2. Search for "Triad AMS" and install.
+3. Restart Home Assistant when prompted
+
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=triad_ams)
 
 Manual install (without HACS)
 -----------------------------

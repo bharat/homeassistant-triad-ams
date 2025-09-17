@@ -106,12 +106,12 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return TriadAmsOptionsFlowHandler(config_entry)
 
 
-class TriadAmsOptionsFlowHandler(config_entries.OptionsFlow):
+class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
     """Options flow mirroring the active-channel selector."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Cache the entry for reading defaults and saving updates."""
-        self.config_entry = config_entry
+        """Initialize with the provided config entry (new API)."""
+        super().__init__(config_entry)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

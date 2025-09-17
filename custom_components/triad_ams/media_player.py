@@ -253,13 +253,11 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: seed and write initial state."""
         self._update_link_subscription()
-        # One-shot refresh to seed state without enabling background polling
-        try:
-            await self.output.refresh()
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Initial refresh failed for output %d", self.output.number)
-        # Keep listener wiring (no background poll currently triggers it)
+        # Subscribe first so any async refresh updates the state when done
         self._output_unsub = self.output.add_listener(self._handle_output_poll_update)
+        # Queue an initial refresh without blocking entity setup
+        if self.hass is not None:
+            self.hass.async_create_task(self.output.refresh_and_notify())
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
