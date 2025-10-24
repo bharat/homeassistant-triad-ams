@@ -19,6 +19,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Print metadata outputs
+        run: |
+          echo "${{ toJSON(steps.meta) }}"
+
       - name: Enable auto-merge for GitHub Actions updates
         if: >-
           ${{ steps.meta.outputs.package-ecosystem == 'github-actions' &&
