@@ -25,8 +25,7 @@ jobs:
 
       - name: Enable auto-merge for GitHub Actions updates
         if: >-
-          ${{ steps.meta.outputs.package-ecosystem == 'github-actions' &&
-              (startsWith(steps.meta.outputs.update-type, 'version-update:semver-minor') ||
+          ${{ (startsWith(steps.meta.outputs.update-type, 'version-update:semver-minor') ||
                startsWith(steps.meta.outputs.update-type, 'version-update:semver-patch') ||
                steps.meta.outputs.update-type == 'security') }}
         run: |
