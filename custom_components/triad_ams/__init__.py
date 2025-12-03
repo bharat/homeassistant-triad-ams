@@ -34,7 +34,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get connection info from entry
     host = entry.data["host"]
     port = entry.data["port"]
-    coordinator = TriadCoordinator(host, port)
+    input_count = entry.data.get("input_count")
+    coordinator = TriadCoordinator(host, port, input_count)
     entry.runtime_data = coordinator
     # Start the coordinator worker so entities can execute commands immediately
     try:

@@ -1,8 +1,9 @@
 """
 Simple config flow for Triad AMS: select active inputs/outputs.
 
-This flow intentionally keeps the UI minimal: after providing host/port,
-users choose which input and output channels are active via checkboxes.
+This flow intentionally keeps the UI minimal: after providing host/port
+and model, users choose which input and output channels are active via
+checkboxes.
 Only active outputs create entities. Inputs are used for routing and, if
 previous advanced options exist (e.g., input links), they are still
 honored internally without being exposed in this basic UI.
@@ -17,7 +18,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
 
-from .const import DOMAIN, INPUT_COUNT, OUTPUT_COUNT
+from .const import DOMAIN
 
 
 class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -26,23 +27,38 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 3
 
-    def _device_counts(self, device_type: str | None) -> tuple[int, int]:
-        """Return (input_count, output_count) for a given device type."""
-        if device_type == "8x8":
-            return 8, 8
-        if device_type == "16x16":
-            return 16, 16
-        if device_type == "24x24":
-            return 24, 24
-        # Fallback to package-wide defaults if device type is unknown/missing.
-        return INPUT_COUNT, OUTPUT_COUNT
+    def _device_counts(self, model: str | None) -> tuple[int, int]:
+        """
+        Return (input_count, output_count) for a given model.
+
+        Treat None as default "AMS8".
+        """
+        match model or "AMS8":
+            case "AMS16":
+                return 16, 16
+            case "AMS24":
+                return 24, 24
+            case _:
+                # Default (covers "AMS8" and any unknown values)
+                return 8, 8
 
     def __init__(self) -> None:
-        """Initialize the flow state with host/port/name placeholders."""
+        """
+        Initialize the flow state with placeholders.
+
+        - host
+        - port
+        - name
+        - model
+        - input_count
+        - output_count
+        """
         self._host: str | None = None
         self._port: int | None = None
         self._name: str | None = None
-        self._device_type: str | None = None
+        self._model: str | None = None
+        self._input_count: int | None = None
+        self._output_count: int | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -51,13 +67,14 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._host = user_input["host"]
             self._port = user_input["port"]
-            self._device_type = user_input.get("device_type", "8x8")
+            self._model = user_input.get("model", "TS-AMS8")
             self._name = (
-                user_input.get("name") or f"Triad AMS {self._device_type} {self._host}"
+                user_input.get("name") or f"Triad AMS {self._model} {self._host}"
             )
+            self._input_count, self._output_count = self._device_counts(self._model)
             # Use host:port:type as a stable unique_id to prevent duplicates,
             # while still allowing multiple distinct hubs.
-            unique_id = f"{self._host}:{self._port}:{self._device_type}"
+            unique_id = f"{self._host}:{self._port}:{self._model}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
             return await self.async_step_channels()
@@ -68,13 +85,13 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional("name", default="Triad AMS"): str,
                     vol.Required("host"): str,
                     vol.Required("port", default=52000): int,
-                    vol.Required("device_type", default="8x8"): selector(
+                    vol.Required("model", default="TS-AMS8"): selector(
                         {
                             "select": {
                                 "options": [
-                                    {"value": "8x8", "label": "8x8"},
-                                    {"value": "16x16", "label": "16x16"},
-                                    {"value": "24x24", "label": "24x24"},
+                                    {"value": "AMS8", "label": "TS-AMS8"},
+                                    {"value": "AMS16", "label": "TS-AMS16"},
+                                    {"value": "AMS24", "label": "TS-AMS24"},
                                 ]
                             }
                         }
@@ -88,17 +105,20 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Choose which inputs/outputs are active and optional input links."""
         if user_input is not None:
-            # Determine counts based on selected device type (fall back to defaults).
-            input_count, output_count = self._device_counts(self._device_type)
+            # Determine counts based on selected model (fall back to defaults).
             active_inputs = [
-                i for i in range(1, input_count + 1) if user_input.get(f"input_{i}")
+                i
+                for i in range(1, self._input_count + 1)
+                if user_input.get(f"input_{i}")
             ]
             active_outputs = [
-                i for i in range(1, output_count + 1) if user_input.get(f"output_{i}")
+                i
+                for i in range(1, self._output_count + 1)
+                if user_input.get(f"output_{i}")
             ]
             input_links = {
                 str(i): user_input.get(f"link_input_{i}")
-                for i in range(1, input_count + 1)
+                for i in range(1, self._input_count + 1)
                 if user_input.get(f"link_input_{i}")
             }
             return self.async_create_entry(
@@ -106,7 +126,9 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     "host": self._host,
                     "port": self._port,
-                    "device_type": self._device_type,
+                    "model": self._model,
+                    "input_count": self._input_count,
+                    "output_count": self._output_count,
                 },
                 options={
                     "active_inputs": active_inputs,
@@ -116,13 +138,11 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         schema: dict[Any, Any] = {}
-        # Determine counts for the UI based on the selected device type (or default)
-        input_count, output_count = self._device_counts(self._device_type)
         # Outputs first
-        for i in range(1, output_count + 1):
+        for i in range(1, self._output_count + 1):
             schema[vol.Optional(f"output_{i}", default=False)] = bool
         # Then inputs, each followed by its optional link
-        for i in range(1, input_count + 1):
+        for i in range(1, self._input_count + 1):
             schema[vol.Optional(f"input_{i}", default=False)] = bool
             schema[vol.Optional(f"link_input_{i}")] = selector(
                 {"entity": {"domain": "media_player"}}
@@ -148,17 +168,6 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         """Initialize with the provided config entry (new API)."""
         super().__init__(config_entry)
 
-    def _device_counts(self, device_type: str | None) -> tuple[int, int]:
-        """Return (input_count, output_count) for a given device type."""
-        if device_type == "8x8":
-            return 8, 8
-        if device_type == "16x16":
-            return 16, 16
-        if device_type == "24x24":
-            return 24, 24
-        # Fallback to package-wide defaults if device type is unknown/missing.
-        return INPUT_COUNT, OUTPUT_COUNT
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -170,9 +179,9 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, title=new_title
                 )
-            # Use device_type from the stored config entry to determine counts
-            device_type = self.config_entry.data.get("device_type")
-            input_count, output_count = self._device_counts(device_type)
+            # Use input_count and output_count from the stored config entry
+            input_count = self.config_entry.data.get("input_count")
+            output_count = self.config_entry.data.get("output_count")
             active_inputs = [
                 i for i in range(1, input_count + 1) if user_input.get(f"input_{i}")
             ]
@@ -199,9 +208,9 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         schema: dict[Any, Any] = {}
         # Allow renaming the device (updates entry title)
         schema[vol.Optional("name", default=self.config_entry.title)] = str
-        # Determine counts from stored device type
-        device_type = self.config_entry.data.get("device_type")
-        input_count, output_count = self._device_counts(device_type)
+        # Determine counts from stored model
+        input_count = self.config_entry.data.get("input_count")
+        output_count = self.config_entry.data.get("output_count")
         # Outputs first
         for i in range(1, output_count + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool
