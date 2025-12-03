@@ -1,6 +1,6 @@
 colorlog==6.10.1
 homeassistant==2025.9.1
-home-assistant-frontend==20251105.1
+home-assistant-frontend==20251202.0
 pip>=21.3.1
 ruff==0.14.7
 pre_commit==4.5.0
