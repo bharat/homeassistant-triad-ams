@@ -43,6 +43,7 @@ class TriadCoordinator:
         self,
         host: str,
         port: int,
+        input_count: int,
         *,
         min_send_interval: float = 0.15,
         poll_interval: float = 30.0,
@@ -50,6 +51,7 @@ class TriadCoordinator:
         """Initialize a paced, single-worker queue."""
         self._host = host
         self._port = port
+        self._input_count = input_count
         self._conn = TriadConnection(host, port)
         self._queue: asyncio.Queue[_Command] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
@@ -60,6 +62,11 @@ class TriadCoordinator:
         # Weak set of outputs to poll; avoids retaining entities
         self._outputs: weakref.WeakSet[TriadAmsOutput] = weakref.WeakSet()
         self._poll_index: int = 0
+
+    @property
+    def input_count(self) -> int:
+        """Public accessor for the configured input count."""
+        return self._input_count
 
     async def start(self) -> None:
         """Start the single worker."""
@@ -209,7 +216,9 @@ class TriadCoordinator:
 
     async def disconnect_output(self, output_channel: int) -> None:
         """Disconnect output."""
-        await self._execute(lambda c: c.disconnect_output(output_channel))
+        await self._execute(
+            lambda c: c.disconnect_output(output_channel, self._input_count)
+        )
 
     async def set_trigger_zone(self, *, on: bool) -> None:
         """Set trigger zone on/off."""

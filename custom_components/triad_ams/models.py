@@ -3,7 +3,7 @@
 import contextlib
 import logging
 
-from .const import INPUT_COUNT, VOLUME_STEPS
+from .const import VOLUME_STEPS
 from .coordinator import TriadCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,10 +31,13 @@ class TriadAmsOutput:
         # when the output is turned back on.
         self._last_assigned_input: int | None = None
         self._ui_on: bool = False  # UI on/off independent of routed source
+        self._input_count = self.coordinator.input_count
         if input_names is not None:
             self.input_names = dict(sorted(input_names.items()))
         else:
-            self.input_names = {i + 1: f"Input {i + 1}" for i in range(INPUT_COUNT)}
+            self.input_names = {
+                i + 1: f"Input {i + 1}" for i in range(self._input_count)
+            }
         self._outputs = outputs
         # Lightweight listener callbacks invoked after refreshes
         self._listeners: list[callable] = []
@@ -179,8 +182,8 @@ class TriadAmsOutput:
             self._volume = await self.coordinator.get_output_volume(self.number)
             self._muted = await self.coordinator.get_output_mute(self.number)
             assigned_input = await self.coordinator.get_output_source(self.number)
-            # assigned_input is 1-based; validate against INPUT_COUNT
-            if assigned_input is not None and 1 <= assigned_input <= INPUT_COUNT:
+            # assigned_input is 1-based; validate against input_count
+            if assigned_input is not None and 1 <= assigned_input <= self._input_count:
                 self._assigned_input = assigned_input
                 # Keep last-known assignment in sync when a valid route exists
                 self._last_assigned_input = assigned_input
