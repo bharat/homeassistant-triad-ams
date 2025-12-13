@@ -38,7 +38,7 @@ This integration is available directly in HACS under the Integration category.
 2. Search for "Triad AMS" and install.
 3. Restart Home Assistant when prompted
 
-[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=triad_ams)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bharat&repository=homeassistant-triad-ams)
 
 Manual install (without HACS)
 -----------------------------
