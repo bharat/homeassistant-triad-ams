@@ -9,7 +9,10 @@ Attribution: The device protocol and command bytes used by this integration were
 
 Status
 ------
-- Supported hardware: Triad AMS 8x8 (Audio Matrix Switch)
+- Supported hardware:
+  - Triad AMS 8x8 (Audio Matrix Switch)
+  - Triad AMS 16x16 (Audio Matrix Switch)
+  - Triad AMS 24x24 (Audio Matrix Switch)
 - Transport: TCP (default port 52000)
 - Discovery: Not implemented (manual host/port entry)
 
@@ -23,6 +26,7 @@ Features
   - Link a Triad input to a Home Assistant `media_player` entity (e.g., Sonos)
   - Triad output entity proxies metadata (title/artist/album/artwork) from the linked player when that input is selected
 - Simple config flow
+  - Select device model (TS-AMS8, TS-AMS16, or TS-AMS24)
   - Choose which outputs and inputs are active
   - Optionally set a link for each input
 - Safe device handling
@@ -48,7 +52,7 @@ Manual install (without HACS)
 Configuration
 -------------
 1. Settings → Devices & Services → “Add Integration” → search for “Triad AMS”
-2. Enter the Triad AMS host/IP and port (default 52000)
+2. Enter the Triad AMS host/IP and port (default 52000), and select your device model (TS-AMS8, TS-AMS16, or TS-AMS24)
 3. In the next step:
    - Active Outputs: select which zones you want entities for
    - Active Inputs: select which inputs are usable as sources
@@ -59,6 +63,7 @@ Notes
 -----
 - You can rename outputs (zones) and set areas from each entity’s settings page
 - If you later change the active lists or links in Options, the integration reloads and updates entities automatically
+- The device model selected during initial setup determines the number of available inputs and outputs
 
 Limitations / Roadmap
 ---------------------
