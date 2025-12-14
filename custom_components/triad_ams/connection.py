@@ -10,7 +10,7 @@ import logging
 import re
 from typing import cast
 
-from .const import INPUT_COUNT, VOLUME_STEPS
+from .const import VOLUME_STEPS
 from .volume_lut import step_for_db
 
 _LOGGER = logging.getLogger(__name__)
@@ -339,16 +339,17 @@ class TriadConnection:
         resp = await self._send_command(cmd, expect=r"Max\s+Volume|0x|dB|Set\s+.*")
         _LOGGER.info("Set trigger zone to %s (resp: %s)", on, resp)
 
-    async def disconnect_output(self, output_channel: int) -> None:
+    async def disconnect_output(self, output_channel: int, input_count: int) -> None:
         """
         Disconnect the output by routing it to an invalid input channel (off).
 
         Args:
             output_channel: 1-based output channel index.
+            input_count: Total number of inputs (used to determine invalid input).
         Command: FF 55 04 03 1D <output> <invalid_input>
 
         """
-        cmd = bytearray.fromhex("FF5504031D") + bytes([output_channel - 1, INPUT_COUNT])
+        cmd = bytearray.fromhex("FF5504031D") + bytes([output_channel - 1, input_count])
         resp = await self._send_command(cmd, expect=r"Start\s+Vol|0x|dB|Set\s+.*")
         # Tolerate varied responses and log outcome
         if "Audio Off" in resp:
