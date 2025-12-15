@@ -14,7 +14,6 @@ from .const import VOLUME_STEPS
 from .volume_lut import step_for_db
 
 _LOGGER = logging.getLogger(__name__)
-TRACE = 5  # Home Assistant supports 'trace' level; use numeric 5
 
 
 class TriadConnection:
@@ -31,14 +30,14 @@ class TriadConnection:
     async def connect(self) -> None:
         """Establish a connection to the Triad AMS device if not already connected."""
         if self._writer is not None:
-            _LOGGER.log(TRACE, "connect(): already connected; skipping")
+            _LOGGER.debug("connect(): already connected; skipping")
             return
-        _LOGGER.log(TRACE, "connect(): begin to %s:%s", self.host, self.port)
+        _LOGGER.debug("connect(): begin to %s:%s", self.host, self.port)
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
         _LOGGER.info("Connected to Triad AMS at %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
         await asyncio.sleep(0.2)
-        _LOGGER.log(TRACE, "connect(): ready (post-sleep)")
+        _LOGGER.debug("connect(): ready (post-sleep)")
 
     async def disconnect(self) -> None:
         """Close the connection to the Triad AMS device if open."""
@@ -51,15 +50,15 @@ class TriadConnection:
 
     def close_nowait(self) -> None:
         """Close the transport without awaiting shutdown (non-blocking)."""
-        _LOGGER.log(
-            TRACE, "close_nowait(): writer is %s", "present" if self._writer else "None"
+        _LOGGER.debug(
+            "close_nowait(): writer is %s", "present" if self._writer else "None"
         )
         if self._writer is not None:
             with contextlib.suppress(Exception):
                 self._writer.close()
         self._reader = None
         self._writer = None
-        _LOGGER.log(TRACE, "close_nowait(): cleared reader/writer")
+        _LOGGER.debug("close_nowait(): cleared reader/writer")
 
     async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:
         """
@@ -68,28 +67,26 @@ class TriadConnection:
         Adds a small inter-command delay, logs raw traffic, and applies a
         reasonable timeout to reads.
         """
-        _LOGGER.log(TRACE, "_send_command(): waiting for lock")
+        _LOGGER.debug("_send_command(): waiting for lock")
         async with self._lock:
-            _LOGGER.log(TRACE, "_send_command(): acquired lock")
+            _LOGGER.debug("_send_command(): acquired lock")
             if self._writer is None or self._reader is None:
-                _LOGGER.log(
-                    TRACE, "_send_command(): transport missing; calling connect()"
-                )
+                _LOGGER.debug("_send_command(): transport missing; calling connect()")
                 await self.connect()
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
             reader = cast("asyncio.StreamReader", self._reader)
             _LOGGER.debug("Sending raw bytes: %s", command.hex())
-            _LOGGER.log(TRACE, "_send_command(): writing %d bytes", len(command))
+            _LOGGER.debug("_send_command(): writing %d bytes", len(command))
             writer.write(command)
-            _LOGGER.log(TRACE, "_send_command(): before drain()")
+            _LOGGER.debug("_send_command(): before drain()")
             await writer.drain()
-            _LOGGER.log(TRACE, "_send_command(): after drain()")
+            _LOGGER.debug("_send_command(): after drain()")
             # Add a very small delay for device tolerance
             await asyncio.sleep(0.1)
-            _LOGGER.log(TRACE, "_send_command(): awaiting response")
+            _LOGGER.debug("_send_command(): awaiting response")
             response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=5)
-            _LOGGER.log(TRACE, "_send_command(): received %d bytes", len(response))
+            _LOGGER.debug("_send_command(): received %d bytes", len(response))
             _LOGGER.debug("Raw response: %r", response)
             text = response.decode(errors="replace").strip("\x00").strip()
             # Evaluate the first (and only) frame. If it doesn't match the
@@ -125,9 +122,9 @@ class TriadConnection:
                     command.hex(),
                 )
                 # Proactively drop the connection without blocking
-                _LOGGER.log(TRACE, "_send_command(): before close_nowait() on error")
+                _LOGGER.debug("_send_command(): before close_nowait() on error")
                 self.close_nowait()
-                _LOGGER.log(TRACE, "_send_command(): after close_nowait() on error")
+                _LOGGER.debug("_send_command(): after close_nowait() on error")
                 msg = "Triad command error or empty response"
                 raise OSError(msg)
             return text
@@ -152,10 +149,6 @@ class TriadConnection:
         Value: 0x00 (off) to 0x64 (max)
 
         """
-        _LOGGER.debug(
-            "Request to set volume for output %d to %.2f", output_channel, percentage
-        )
-
         # Clamp to device range 0..1.0 (0x00..0x64)
         capped = max(0.0, min(percentage, 1.0))
 
@@ -256,12 +249,15 @@ class TriadConnection:
             [output_channel - 1]
         )
         resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
-        _LOGGER.debug(
-            "Volume step up (%s) for output %d (resp: %s)",
-            "large" if large else "small",
-            output_channel,
-            resp,
-        )
+        if large:
+            _LOGGER.info("Volume step up (large) for output %d", output_channel)
+            _LOGGER.debug(
+                "Volume step up (large) for output %d (resp: %s)", output_channel, resp
+            )
+        else:
+            _LOGGER.debug(
+                "Volume step up (small) for output %d (resp: %s)", output_channel, resp
+            )
 
     async def volume_step_down(
         self, output_channel: int, *, large: bool = False
@@ -271,12 +267,19 @@ class TriadConnection:
             [output_channel - 1]
         )
         resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
-        _LOGGER.debug(
-            "Volume step down (%s) for output %d (resp: %s)",
-            "large" if large else "small",
-            output_channel,
-            resp,
-        )
+        if large:
+            _LOGGER.info("Volume step down (large) for output %d", output_channel)
+            _LOGGER.debug(
+                "Volume step down (large) for output %d (resp: %s)",
+                output_channel,
+                resp,
+            )
+        else:
+            _LOGGER.debug(
+                "Volume step down (small) for output %d (resp: %s)",
+                output_channel,
+                resp,
+            )
 
     async def set_output_to_input(
         self, output_channel: int, input_channel: int
