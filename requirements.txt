@@ -4,3 +4,4 @@ home-assistant-frontend==20251203.2
 pip>=21.3.1
 ruff==0.14.9
 pre_commit==4.5.0
+pycares==4.11.0
