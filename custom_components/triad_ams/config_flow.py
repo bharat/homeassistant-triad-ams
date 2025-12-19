@@ -25,7 +25,7 @@ class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a simple config flow for Triad AMS."""
 
     VERSION = 1
-    MINOR_VERSION = 3
+    MINOR_VERSION = 4
 
     def _device_counts(self, model: str | None) -> tuple[int, int]:
         """
