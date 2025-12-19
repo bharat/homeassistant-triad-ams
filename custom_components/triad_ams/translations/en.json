@@ -9,5 +9,17 @@
                 "description": "Do you want to start setup?"
             }
         }
+    },
+    "services": {
+        "turn_on_with_source": {
+            "name": "Turn on with Source",
+            "description": "Turn on the Triad AMS zone and set the input source to that of another media player entity.",
+            "fields": {
+                "input_entity_id": {
+                    "name": "Input Entity ID",
+                    "description": "The media player entity to use as the input source."
+                }
+            }
+            }
     }
 }

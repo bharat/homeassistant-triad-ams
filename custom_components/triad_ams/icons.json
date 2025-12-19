@@ -1,0 +1,5 @@
+{
+  "services": {
+    "turn_on_with_source": {"service": "mdi:power"}
+  }
+}
