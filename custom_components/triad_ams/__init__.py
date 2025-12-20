@@ -22,6 +22,8 @@ PLATFORMS = ["media_player"]
 
 SERVICE_TURN_ON_WITH_SOURCE = "turn_on_with_source"
 ATTR_INPUT_ENTITY_ID = "input_entity_id"
+# Target minor version for migration
+TARGET_MINOR_VERSION = 4
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +46,33 @@ async def async_setup(_hass: HomeAssistant, _config: ConfigType) -> bool:
 
 # This integration is config-entry only; no YAML configuration
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate old config entries to add model and counts if missing."""
+    # Get current minor version, defaulting to 0 if not set
+    current_minor_version = getattr(config_entry, "minor_version", 0)
+
+    # Only migrate if minor version is less than target version
+    if current_minor_version < TARGET_MINOR_VERSION:
+        new_data = {**config_entry.data}
+
+        # Add model and counts if missing
+        if "model" not in config_entry.data:
+            _LOGGER.info(
+                "Migrating config entry %s: adding model AMS8 and input/output counts",
+                config_entry.entry_id,
+            )
+            new_data["model"] = "AMS8"
+            new_data["input_count"] = 8
+            new_data["output_count"] = 8
+
+        # Update the entry with new data and minor version
+        hass.config_entries.async_update_entry(
+            config_entry, data=new_data, minor_version=TARGET_MINOR_VERSION
+        )
+
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
