@@ -1,0 +1,17 @@
+turn_on_with_source:
+  description: "Turn on the Triad AMS zone and set the input source to that of another media player entity."
+  target:
+    entity:
+      domain: media_player
+      integration: triad_ams
+  fields:
+    input_entity_id:
+      required: true
+      example: media_player.apple_tv
+      selector:
+        entity:
+          domain: media_player
+          filter:
+            supported_features:
+              - media_player.MediaPlayerEntityFeature.PLAY
+              - media_player.MediaPlayerEntityFeature.PLAY_MEDIA

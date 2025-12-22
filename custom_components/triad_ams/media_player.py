@@ -11,7 +11,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, ServiceValidationError, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
@@ -128,6 +128,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
         self._output_unsub: callable | None = None
+        self._options = entry.options
         # Keep per-entry unique entity IDs stable
         self._attr_unique_id = f"{entry.entry_id}_output_{output.number}"
         # Entity name part; with has_entity_name this becomes the suffix
@@ -183,6 +184,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             return None
         return st.attributes.get(key)
 
+    # ---- Media info ----
     @property
     def media_title(self) -> str | None:
         """Return the current media title from the linked source, if any."""
@@ -218,6 +220,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Return the artwork URL from the linked source, if any."""
         return self._linked_attr("entity_picture")
 
+    # ---- Core media player properties and commands ----
     @property
     def state(self) -> str:
         """Return the state of the entity (STATE_ON or STATE_OFF)."""
@@ -232,6 +235,21 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     def source_list(self) -> list[str]:
         """Return the list of available source names."""
         return self.output.source_list
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if the output is on, False if off."""
+        return self.output.is_on
+
+    @property
+    def volume_level(self) -> float | None:
+        """Return the volume level of the output (0..1), or None if unknown."""
+        return self.output.volume if self.output.volume is not None else None
+
+    @property
+    def is_volume_muted(self) -> bool | None:
+        """Return True if the output is muted."""
+        return self.output.muted
 
     async def async_select_source(self, source: str) -> None:
         """Select a source by friendly name."""
@@ -266,30 +284,6 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             self._output_unsub()
             self._output_unsub = None
 
-    @property
-    def is_on(self) -> bool:
-        """Return True if the output is on, False if off."""
-        return self.output.is_on
-
-    @property
-    def volume_level(self) -> float | None:
-        """Return the volume level of the output (0..1), or None if unknown."""
-        return self.output.volume if self.output.volume is not None else None
-
-    @property
-    def is_volume_muted(self) -> bool | None:
-        """Return True if the output is muted."""
-        return self.output.muted
-
-    async def async_turn_off(self) -> None:
-        """Turn off the output (disconnect from any input)."""
-        _LOGGER.info("Turning OFF output %d", self.output.number)
-        await self.output.turn_off()
-        # Unsubscribe before writing state so we don't expose linked metadata
-        # while the output is off.
-        self._update_link_subscription()
-        self.async_write_ha_state()
-
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
         _LOGGER.info("Setting volume for output %d to %.2f", self.output.number, volume)
@@ -316,9 +310,44 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         await self.output.refresh()
         self.async_write_ha_state()
 
+    async def async_turn_off(self) -> None:
+        """Turn off the output (disconnect from any input)."""
+        _LOGGER.info("Turning OFF output %d", self.output.number)
+        await self.output.turn_off()
+        # Unsubscribe before writing state so we don't expose linked metadata
+        # while the output is off.
+        self._update_link_subscription()
+        self.async_write_ha_state()
+
     async def async_turn_on(self) -> None:
         """Turn on the player in UI without routing a source."""
         _LOGGER.info("Turning ON output %d", self.output.number)
+        await self.output.turn_on()
+        self._update_link_subscription()
+        self.async_write_ha_state()
+
+    async def async_turn_on_with_source(self, input_entity_id: str) -> None:
+        """Turn on this output and route the given source."""
+        # Map input entity ID to input number
+        input_links = self._input_links
+        source = None
+        for input_str, linked_entity_id in input_links.items():
+            if linked_entity_id == input_entity_id:
+                try:
+                    source = int(input_str)
+                    break
+                except ValueError:
+                    pass
+
+        if source is None:
+            msg = f"Input entity {input_entity_id} is not linked in integration options"
+            raise ValueError(msg)
+
+        if source not in self._options.get("active_inputs", []):
+            msg = f"Input {source} is not active"
+            raise ServiceValidationError(msg)
+
+        await self.output.set_source(source)
         await self.output.turn_on()
         self._update_link_subscription()
         self.async_write_ha_state()

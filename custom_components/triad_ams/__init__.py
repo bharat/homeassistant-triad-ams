@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
+from homeassistant.components.media_player import DOMAIN as MEDIA_PLAYER_DOMAIN
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import service
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -17,6 +20,8 @@ from .coordinator import TriadCoordinator
 
 PLATFORMS = ["media_player"]
 
+SERVICE_TURN_ON_WITH_SOURCE = "turn_on_with_source"
+ATTR_INPUT_ENTITY_ID = "input_entity_id"
 # Target minor version for migration
 TARGET_MINOR_VERSION = 4
 
@@ -25,6 +30,17 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(_hass: HomeAssistant, _config: ConfigType) -> bool:
     """Set up the Triad AMS integration (empty, config entry only)."""
+    service.async_register_platform_entity_service(
+        _hass,
+        DOMAIN,
+        SERVICE_TURN_ON_WITH_SOURCE,
+        entity_domain=MEDIA_PLAYER_DOMAIN,
+        schema={
+            vol.Required(ATTR_INPUT_ENTITY_ID): cv.entity_id,
+        },
+        func="async_turn_on_with_source",
+    )
+
     return True
 
 
