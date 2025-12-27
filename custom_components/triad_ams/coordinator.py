@@ -220,6 +220,6 @@ class TriadCoordinator:
             lambda c: c.disconnect_output(output_channel, self._input_count)
         )
 
-    async def set_trigger_zone(self, *, on: bool) -> None:
-        """Set trigger zone on/off."""
-        await self._execute(lambda c: c.set_trigger_zone(on=on))
+    async def set_trigger_zone(self, zone: int = 1, *, on: bool) -> None:
+        """Set a trigger zone on/off (zone is 1-based)."""
+        await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=on))

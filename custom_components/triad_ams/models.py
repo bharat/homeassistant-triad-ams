@@ -63,6 +63,39 @@ class TriadAmsOutput:
                 )
 
     @property
+    def zone(self) -> int:
+        """Get the trigger zone index (1-3) for this output."""
+        return (self.number - 1) // 8 + 1
+
+    def _get_same_zone_outputs(self) -> list["TriadAmsOutput"]:
+        """Get all outputs in the same trigger zone as this output."""
+        return [
+            o for o in (self._outputs or []) if o is not self and o.zone == self.zone
+        ]
+
+    async def _set_trigger_zone_if_needed(
+        self, *, should_enable: bool, context: str
+    ) -> None:
+        """
+        Enable or disable trigger zone based on other outputs in the zone.
+
+        Args:
+            should_enable: True to enable, False to disable.
+            context: Description for logging (e.g., "before routing").
+
+        """
+        zone = self.zone
+        try:
+            same_zone = self._get_same_zone_outputs()
+            # If there are other outputs in the zone and none are on,
+            # toggle the trigger zone according to `should_enable`.
+            if same_zone and not any(o.is_on for o in same_zone):
+                await self.coordinator.set_trigger_zone(zone, on=should_enable)
+        except Exception:
+            action = "enable" if should_enable else "disable"
+            _LOGGER.exception("Failed to %s trigger zone %d %s", action, zone, context)
+
+    @property
     def source_name(self) -> str | None:
         """Return the friendly name of the current source, or None if off."""
         if self._assigned_input is None:
@@ -94,8 +127,6 @@ class TriadAmsOutput:
     async def set_source(self, input_id: int) -> None:
         """Set the output to the given input channel (1-based)."""
         try:
-            # If all outputs are off, enable trigger zone first
-            # Coordinator handles trigger-zone orchestration
             await self.coordinator.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
             # Remember this assignment so we can restore it later
@@ -166,15 +197,28 @@ class TriadAmsOutput:
             await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
+            # If this was the last active output in the trigger zone, disable it
+            await self._set_trigger_zone_if_needed(
+                should_enable=False, context="after turning off"
+            )
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
         """Turn on the player and restore the previous source if known."""
-        self._ui_on = True
-        # If we have a remembered input, restore it immediately
+        # If we have a remembered input, restore it immediately. If not,
+        # simply mark UI on and enable the trigger zone if needed.
         if self._last_assigned_input is not None:
+            # Ensure trigger zone is enabled before routing
+            await self._set_trigger_zone_if_needed(
+                should_enable=True, context="before restore"
+            )
             await self.set_source(self._last_assigned_input)
+        else:
+            self._ui_on = True
+            await self._set_trigger_zone_if_needed(
+                should_enable=True, context="on turn_on"
+            )
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
