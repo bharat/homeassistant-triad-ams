@@ -62,6 +62,8 @@ class TriadCoordinator:
         # Weak set of outputs to poll; avoids retaining entities
         self._outputs: weakref.WeakSet[TriadAmsOutput] = weakref.WeakSet()
         self._poll_index: int = 0
+        # Track number of on commands per zone (1..3) to manage zone state
+        self._zone_on_counts: dict[int, int] = {1: 0, 2: 0, 3: 0}
 
     @property
     def input_count(self) -> int:
@@ -220,6 +222,42 @@ class TriadCoordinator:
             lambda c: c.disconnect_output(output_channel, self._input_count)
         )
 
-    async def set_trigger_zone(self, zone: int = 1, *, on: bool) -> None:
-        """Set a trigger zone on/off (zone is 1-based)."""
-        await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=on))
+    async def set_trigger_zone(self, zone: int, *, on: bool) -> None:
+        """
+        Set a trigger zone on/off (zone is 1-based).
+
+        Only executes when zone actually needs to toggle:
+        - on=True: when count transitions from 0 to 1 (first device on)
+        - on=False: when count transitions to 0 (last device off)
+        """
+        if zone not in self._zone_on_counts:
+            return
+
+        if on:
+            self._zone_on_counts[zone] += 1
+            # Only execute if this is the first device turning on for this zone
+            if self._zone_on_counts[zone] == 1:
+                _LOGGER.debug(
+                    "Triggering zone %d ON: first device in zone enabled", zone
+                )
+                await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=True))
+            else:
+                _LOGGER.debug(
+                    "Zone %d ON request skipped: %d devices already on",
+                    zone,
+                    self._zone_on_counts[zone] - 1,
+                )
+        else:
+            self._zone_on_counts[zone] = max(0, self._zone_on_counts[zone] - 1)
+            # Only execute if this is the last device turning off for this zone
+            if self._zone_on_counts[zone] == 0:
+                _LOGGER.debug(
+                    "Triggering zone %d OFF: last device in zone disabled", zone
+                )
+                await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=False))
+            else:
+                _LOGGER.debug(
+                    "Zone %d OFF request skipped: %d devices still on",
+                    zone,
+                    self._zone_on_counts[zone],
+                )
