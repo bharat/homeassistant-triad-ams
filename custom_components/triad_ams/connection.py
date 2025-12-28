@@ -329,18 +329,37 @@ class TriadConnection:
         _LOGGER.error("Could not parse output source from response: %s", resp)
         return None
 
-    async def set_trigger_zone(self, *, on: bool) -> None:
+    async def set_trigger_zone(self, zone: int = 1, *, on: bool) -> None:
         """
-        Set the trigger zone on or off.
+        Set a trigger zone on or off.
 
         Args:
+            zone: 1-based trigger zone index (1..3). Default 1 for backwards compatibility.
             on: True to enable, False to disable.
-        Command: On: FF 55 03 05 50 00, Off: FF 55 03 05 51 00
 
-        """
-        cmd = bytearray.fromhex("FF5503055000" if on else "FF5503055100")
+        Command mapping:
+            Zone 1 on:  FF 55 03 05 50 00, Zone 1 off: FF 55 03 05 51 00
+            Zone 2 on:  FF 55 03 05 50 01, Zone 2 off: FF 55 03 05 51 01
+            Zone 3 on:  FF 55 03 05 50 02, Zone 3 off: FF 55 03 05 51 02
+
+        The pattern is: FF 55 03 05 <base> <zone-1>
+        where <base> is 0x50 for on or 0x51 for off.
+
+        """  # noqa: E501
+        # Normalize zone to 1..3
+        zone = max(1, min(zone, 3))
+
+        zone_byte = zone - 1  # 0 for zone 1, 1 for zone 2, 2 for zone 3
+        # Build explicit hex command per observed device opcodes
+        hex_zone = f"{zone_byte:02X}"
+        if on:
+            # Examples: zone1 on: FF5503055000, zone2 on: FF5503055001
+            cmd = bytearray.fromhex(f"FF55030550{hex_zone}")
+        else:
+            # Examples: zone1 off: FF5503055100, zone2 off: FF5503055101
+            cmd = bytearray.fromhex(f"FF55030551{hex_zone}")
         resp = await self._send_command(cmd, expect=r"Max\s+Volume|0x|dB|Set\s+.*")
-        _LOGGER.info("Set trigger zone to %s (resp: %s)", on, resp)
+        _LOGGER.info("Set trigger zone %d to %s (resp: %s)", zone, on, resp)
 
     async def disconnect_output(self, output_channel: int, input_count: int) -> None:
         """
@@ -349,6 +368,7 @@ class TriadConnection:
         Args:
             output_channel: 1-based output channel index.
             input_count: Total number of inputs (used to determine invalid input).
+
         Command: FF 55 04 03 1D <output> <invalid_input>
 
         """

@@ -22,6 +22,10 @@ class TriadAmsOutput:
     ) -> None:
         """Initialize a Triad AMS output channel."""
         self.number = number  # 1-based output channel
+        # Pre-compute trigger zone (1-based) to assign during initialization
+        # Clamp to valid Triad AMS zones (1..3)
+        zone_raw = (self.number - 1) // 8 + 1
+        self._zone: int = max(1, min(zone_raw, 3))
         self.name = name
         self.coordinator = coordinator
         self._volume: float | None = None
@@ -94,8 +98,6 @@ class TriadAmsOutput:
     async def set_source(self, input_id: int) -> None:
         """Set the output to the given input channel (1-based)."""
         try:
-            # If all outputs are off, enable trigger zone first
-            # Coordinator handles trigger-zone orchestration
             await self.coordinator.set_output_to_input(self.number, input_id)
             self._assigned_input = input_id
             # Remember this assignment so we can restore it later
@@ -166,15 +168,22 @@ class TriadAmsOutput:
             await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
+            # Request zone off; coordinator will only send if this is the last active device  # noqa: E501
+            await self.coordinator.set_trigger_zone(zone=self._zone, on=False)
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
         """Turn on the player and restore the previous source if known."""
-        self._ui_on = True
-        # If we have a remembered input, restore it immediately
+        # Request zone on; coordinator will only send if this is the first active device
+        await self.coordinator.set_trigger_zone(zone=self._zone, on=True)
+
+        # If we have a remembered input, restore it immediately.
+        # If not, simply mark UI on
         if self._last_assigned_input is not None:
             await self.set_source(self._last_assigned_input)
+        else:
+            self._ui_on = True
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
