@@ -62,8 +62,9 @@ class TriadCoordinator:
         # Weak set of outputs to poll; avoids retaining entities
         self._outputs: weakref.WeakSet[TriadAmsOutput] = weakref.WeakSet()
         self._poll_index: int = 0
-        # Track number of on commands per zone (1..3) to manage zone state
-        self._zone_on_counts: dict[int, int] = {1: 0, 2: 0, 3: 0}
+        # Track active outputs per zone (zone -> set of output numbers)
+        # Zones are 1-based and mapped in groups of 8 outputs (clamped 1..3).
+        self._zone_active_outputs: dict[int, set[int]] = {1: set(), 2: set(), 3: set()}
 
     @property
     def input_count(self) -> int:
@@ -163,6 +164,26 @@ class TriadCoordinator:
             self._poll_index += 1
             try:
                 await target.refresh_and_notify()
+                # After refreshing the output, reconcile the coordinator's
+                # zone active sets with the polled device state. This ensures
+                # that external changes (or other controllers) are reflected
+                # and that trigger zone commands are sent when zones move
+                # between empty and non-empty.
+                try:
+                    zone = self._zone_for_output(target.number)
+                    active = self._zone_active_outputs.setdefault(zone, set())
+                    if target.has_source:
+                        was_empty = len(active) == 0
+                        if target.number not in active:
+                            active.add(target.number)
+                            if was_empty and len(active) == 1:
+                                await self.set_trigger_zone(zone=zone, on=True)
+                    elif target.number in active:
+                        active.discard(target.number)
+                        if len(active) == 0:
+                            await self.set_trigger_zone(zone=zone, on=False)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("Failed to reconcile zone sets after refresh")
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Rolling poll refresh failed for output")
             await asyncio.sleep(self._poll_interval)
@@ -207,57 +228,67 @@ class TriadCoordinator:
     async def set_output_to_input(
         self, output_channel: int, input_channel: int
     ) -> None:
-        """Route output to input."""
-        await self._execute(
-            lambda c: c.set_output_to_input(output_channel, input_channel)
-        )
+        """
+        Route output to input and update zone active set.
+
+        This enqueues a single operation that performs the device routing and
+        then updates the coordinator's zone set. If the output makes the zone
+        transition from empty -> non-empty, the trigger zone ON command is
+        issued on the same connection to preserve sequencing.
+        """
+
+        async def _op(c: TriadConnection) -> None:  # type: ignore[name-defined]
+            await c.set_output_to_input(output_channel, input_channel)
+            # Compute zone and add this output to the active set
+            zone = self._zone_for_output(output_channel)
+            active = self._zone_active_outputs.setdefault(zone, set())
+            was_empty = len(active) == 0
+            active.add(output_channel)
+            if was_empty and len(active) == 1:
+                await c.set_trigger_zone(zone=zone, on=True)
+
+        await self._execute(_op)
 
     async def get_output_source(self, output_channel: int) -> int | None:
         """Get routed input (1-based) or None."""
         return await self._execute(lambda c: c.get_output_source(output_channel))
 
     async def disconnect_output(self, output_channel: int) -> None:
-        """Disconnect output."""
-        await self._execute(
-            lambda c: c.disconnect_output(output_channel, self._input_count)
-        )
+        """
+        Disconnect output and update zone active set.
+
+        After the device disconnect command succeeds, remove the output from
+        the zone active set and issue a trigger zone OFF command only when the
+        set becomes empty.
+        """
+
+        async def _op(c: TriadConnection) -> None:  # type: ignore[name-defined]
+            await c.disconnect_output(output_channel, self._input_count)
+            zone = self._zone_for_output(output_channel)
+            active = self._zone_active_outputs.get(zone)
+            if active and output_channel in active:
+                active.discard(output_channel)
+                if len(active) == 0:
+                    await c.set_trigger_zone(zone=zone, on=False)
+
+        await self._execute(_op)
 
     async def set_trigger_zone(self, zone: int, *, on: bool) -> None:
         """
-        Set a trigger zone on/off (zone is 1-based).
+        Send a trigger zone on/off command (passes through to device).
 
-        Only executes when zone actually needs to toggle:
-        - on=True: when count transitions from 0 to 1 (first device on)
-        - on=False: when count transitions to 0 (last device off)
+        Zone active tracking is handled by `set_output_to_input` and
+        `disconnect_output`; this method provides a direct passthrough for
+        manual or legacy calls.
         """
-        if zone not in self._zone_on_counts:
-            return
+        await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=on))
 
-        if on:
-            self._zone_on_counts[zone] += 1
-            # Only execute if this is the first device turning on for this zone
-            if self._zone_on_counts[zone] == 1:
-                _LOGGER.debug(
-                    "Triggering zone %d ON: first device in zone enabled", zone
-                )
-                await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=True))
-            else:
-                _LOGGER.debug(
-                    "Zone %d ON request skipped: %d devices already on",
-                    zone,
-                    self._zone_on_counts[zone] - 1,
-                )
-        else:
-            self._zone_on_counts[zone] = max(0, self._zone_on_counts[zone] - 1)
-            # Only execute if this is the last device turning off for this zone
-            if self._zone_on_counts[zone] == 0:
-                _LOGGER.debug(
-                    "Triggering zone %d OFF: last device in zone disabled", zone
-                )
-                await self._execute(lambda c: c.set_trigger_zone(zone=zone, on=False))
-            else:
-                _LOGGER.debug(
-                    "Zone %d OFF request skipped: %d devices still on",
-                    zone,
-                    self._zone_on_counts[zone],
-                )
+    def _zone_for_output(self, output: int) -> int:
+        """
+        Return the 1-based zone for an output, clamped to 1..3.
+
+        Zones are grouped in blocks of 8 outputs as used elsewhere in the
+        integration (see `TriadAmsOutput` initialization).
+        """
+        zone_raw = (output - 1) // 8 + 1
+        return max(1, min(zone_raw, 3))

@@ -24,8 +24,6 @@ class TriadAmsOutput:
         self.number = number  # 1-based output channel
         # Pre-compute trigger zone (1-based) to assign during initialization
         # Clamp to valid Triad AMS zones (1..3)
-        zone_raw = (self.number - 1) // 8 + 1
-        self._zone: int = max(1, min(zone_raw, 3))
         self.name = name
         self.coordinator = coordinator
         self._volume: float | None = None
@@ -168,18 +166,15 @@ class TriadAmsOutput:
             await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
-            # Request zone off; coordinator will only send if this is the last active device  # noqa: E501
-            await self.coordinator.set_trigger_zone(zone=self._zone, on=False)
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
         """Turn on the player and restore the previous source if known."""
-        # Request zone on; coordinator will only send if this is the first active device
-        await self.coordinator.set_trigger_zone(zone=self._zone, on=True)
-
-        # If we have a remembered input, restore it immediately.
-        # If not, simply mark UI on
+        # Restore the remembered input if present (this will add the output
+        # to the coordinator's zone active set via `set_output_to_input`). If no
+        # remembered input exists, mark UI on only; zone triggers are managed
+        # by `set_output_to_input` / `disconnect_output`.
         if self._last_assigned_input is not None:
             await self.set_source(self._last_assigned_input)
         else:
@@ -191,6 +186,14 @@ class TriadAmsOutput:
             self._volume = await self.coordinator.get_output_volume(self.number)
             self._muted = await self.coordinator.get_output_mute(self.number)
             assigned_input = await self.coordinator.get_output_source(self.number)
+
+            _LOGGER.debug(
+                "Refreshed output %d: volume=%.3f muted=%s source=%s",
+                self.number,
+                self._volume,
+                self._muted,
+                assigned_input,
+            )
             # assigned_input is 1-based; validate against input_count
             if assigned_input is not None and 1 <= assigned_input <= self._input_count:
                 self._assigned_input = assigned_input
