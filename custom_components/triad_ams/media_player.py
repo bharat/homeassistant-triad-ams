@@ -26,6 +26,151 @@ from .models import TriadAmsOutput
 _LOGGER = logging.getLogger(__name__)
 
 
+def _build_input_names(
+    hass: HomeAssistant,
+    active_inputs: list[int],
+    input_links_opt: dict[str, str],
+) -> dict[int, str]:
+    """Build input names dict from linked entities or defaults."""
+    input_names: dict[int, str] = {}
+    for i in active_inputs:
+        ent_id = input_links_opt.get(str(i))
+        if ent_id:
+            st = hass.states.get(ent_id)
+            if st:
+                input_names[i] = st.name
+                continue
+        input_names[i] = f"Input {i}"
+    return input_names
+
+
+@callback
+def _update_input_name_from_state(
+    hass: HomeAssistant,
+    input_num: int,
+    entity_id: str,
+    input_names: dict[int, str],
+    entities: list[TriadAmsMediaPlayer],
+) -> None:
+    """Update input name from entity state and notify entities."""
+    new_state = hass.states.get(entity_id)
+    if new_state and new_state.name:
+        old_name = input_names.get(input_num, f"Input {input_num}")
+        new_name = new_state.name
+        if old_name != new_name:
+            _LOGGER.debug(
+                "Updating input %d name from '%s' to '%s' (entity: %s)",
+                input_num,
+                old_name,
+                new_name,
+                entity_id,
+            )
+            input_names[input_num] = new_name
+            for entity in entities:
+                entity.async_write_ha_state()
+
+
+@callback
+def _create_input_link_handler(
+    hass: HomeAssistant,
+    input_links_opt: dict[str, str],
+    active_inputs: list[int],
+    input_names: dict[int, str],
+    entities: list[TriadAmsMediaPlayer],
+) -> Any:
+    """Create callback handler for input link state changes."""
+
+    @callback
+    def _handle_input_link_state_change(event: Any) -> None:
+        """Handle state changes from linked input entities."""
+        entity_id = event.data.get("entity_id")
+        if not entity_id:
+            return
+
+        # Find which input number this entity is linked to
+        input_num = None
+        for input_str, linked_ent_id in input_links_opt.items():
+            if linked_ent_id == entity_id:
+                try:
+                    input_num = int(input_str)
+                    break
+                except ValueError:
+                    continue
+
+        if input_num is None or input_num not in active_inputs:
+            return
+
+        _update_input_name_from_state(hass, input_num, entity_id, input_names, entities)
+
+    return _handle_input_link_state_change
+
+
+def _setup_input_link_subscriptions(  # noqa: PLR0913
+    hass: HomeAssistant,
+    coordinator: Any,
+    input_links_opt: dict[str, str],
+    active_inputs: list[int],
+    input_names: dict[int, str],
+    entities: list[TriadAmsMediaPlayer],
+) -> None:
+    """Set up subscriptions to linked entity state changes."""
+    linked_entity_ids = [ent_id for ent_id in input_links_opt.values() if ent_id]
+    if not linked_entity_ids:
+        return
+
+    handler = _create_input_link_handler(
+        hass, input_links_opt, active_inputs, input_names, entities
+    )
+    unsub = async_track_state_change_event(hass, linked_entity_ids, handler)
+
+    # Store unsubscribe function to clean up on unload
+    # Accessing private member is intentional for cleanup tracking
+    if not hasattr(coordinator, "_input_link_unsubs"):
+        coordinator._input_link_unsubs = []  # noqa: SLF001
+    coordinator._input_link_unsubs.append(unsub)  # noqa: SLF001
+
+    # Check immediately for any entities that might have become available
+    for i in active_inputs:
+        ent_id = input_links_opt.get(str(i))
+        if ent_id and (
+            i not in input_names or input_names.get(i, "").startswith("Input ")
+        ):
+            _update_input_name_from_state(hass, i, ent_id, input_names, entities)
+
+
+def _cleanup_stale_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    outputs: list[TriadAmsOutput],
+) -> None:
+    """Remove stale entities for outputs that are no longer active."""
+    allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
+    registry = er.async_get(hass)
+    for ent in list(registry.entities.values()):
+        if (
+            ent.platform == DOMAIN
+            and ent.config_entry_id == entry.entry_id
+            and ent.unique_id not in allowed
+        ):
+            registry.async_remove(ent.entity_id)
+
+
+def _remove_orphaned_devices(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Remove orphaned devices (those without any entities for this entry)."""
+    registry = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    for device in list(dev_reg.devices.values()):
+        if entry.entry_id not in device.config_entries:
+            continue
+        if not er.async_entries_for_device(
+            registry, device.id, include_disabled_entities=True
+        ):
+            dev_reg.async_remove_device(device.id)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -46,16 +191,7 @@ async def async_setup_entry(
     active_outputs: list[int] = entry.options.get("active_outputs", [])
 
     input_links_opt: dict[str, str] = entry.options.get("input_links", {})
-    # Use linked entity friendly names when available
-    input_names: dict[int, str] = {}
-    for i in active_inputs:
-        ent_id = input_links_opt.get(str(i))
-        if ent_id:
-            st = hass.states.get(ent_id)
-            if st:
-                input_names[i] = st.name
-                continue
-        input_names[i] = f"Input {i}"
+    input_names = _build_input_names(hass, active_inputs, input_links_opt)
     input_links: dict[int, str | None] = {
         i: input_links_opt.get(str(i)) for i in active_inputs
     }
@@ -80,26 +216,12 @@ async def async_setup_entry(
     _LOGGER.debug(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
     )
-    # Cleanup stale entities for outputs that are no longer active
-    allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
-    registry = er.async_get(hass)
-    for ent in list(registry.entities.values()):
-        if (
-            ent.platform == DOMAIN
-            and ent.config_entry_id == entry.entry_id
-            and ent.unique_id not in allowed
-        ):
-            registry.async_remove(ent.entity_id)
 
-    # Remove orphaned devices (those without any entities for this entry)
-    dev_reg = dr.async_get(hass)
-    for device in list(dev_reg.devices.values()):
-        if entry.entry_id not in device.config_entries:
-            continue
-        if not er.async_entries_for_device(
-            registry, device.id, include_disabled_entities=True
-        ):
-            dev_reg.async_remove_device(device.id)
+    _setup_input_link_subscriptions(
+        hass, coordinator, input_links_opt, active_inputs, input_names, entities
+    )
+    _cleanup_stale_entities(hass, entry, outputs)
+    _remove_orphaned_devices(hass, entry)
 
 
 class TriadAmsMediaPlayer(MediaPlayerEntity):

@@ -22,10 +22,11 @@ class TriadAmsOutput:
     ) -> None:
         """Initialize a Triad AMS output channel."""
         self.number = number  # 1-based output channel
-        # Pre-compute trigger zone (1-based) to assign during initialization
-        # Clamp to valid Triad AMS zones (1..3)
         self.name = name
         self.coordinator = coordinator
+        self.input_names = input_names or {
+            i + 1: f"Input {i + 1}" for i in range(self._input_count)
+        }
         self._volume: float | None = None
         self._muted: bool = False
         self._assigned_input: int | None = None  # None = no routed source
@@ -34,12 +35,6 @@ class TriadAmsOutput:
         self._last_assigned_input: int | None = None
         self._ui_on: bool = False  # UI on/off independent of routed source
         self._input_count = self.coordinator.input_count
-        if input_names is not None:
-            self.input_names = dict(sorted(input_names.items()))
-        else:
-            self.input_names = {
-                i + 1: f"Input {i + 1}" for i in range(self._input_count)
-            }
         self._outputs = outputs
         # Lightweight listener callbacks invoked after refreshes
         self._listeners: list[callable] = []

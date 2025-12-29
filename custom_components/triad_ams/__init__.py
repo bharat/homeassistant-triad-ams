@@ -105,6 +105,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         coordinator: TriadCoordinator = entry.runtime_data
+        # Clean up input link subscriptions
+        if hasattr(coordinator, "_input_link_unsubs"):
+            for unsub in coordinator._input_link_unsubs:  # noqa: SLF001
+                unsub()
+            coordinator._input_link_unsubs = []  # noqa: SLF001
         try:
             await coordinator.stop()
         except Exception:
