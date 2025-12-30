@@ -125,7 +125,7 @@ class TriadAmsOutput:
         """Return True if muted."""
         return self._muted
 
-    async def set_muted(self, muted: bool) -> None:  # noqa: FBT001
+    async def set_muted(self, *, muted: bool) -> None:
         """Set mute state on the device and update cache."""
         try:
             await self.coordinator.set_output_mute(self.number, mute=muted)

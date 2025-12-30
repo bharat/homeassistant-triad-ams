@@ -415,7 +415,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_mute_volume(self, mute: bool) -> None:  # noqa: FBT001
         """Mute or unmute the output."""
         _LOGGER.info("Setting mute for output %d to %s", self.output.number, mute)
-        await self.output.set_muted(mute)
+        await self.output.set_muted(muted=mute)
         self.async_write_ha_state()
 
     async def async_volume_up(self) -> None:
