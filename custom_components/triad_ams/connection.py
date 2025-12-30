@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import socket
 from typing import cast
 
 from .const import VOLUME_STEPS
@@ -53,14 +54,25 @@ class TriadConnection:
         _LOGGER.debug(
             "close_nowait(): writer is %s", "present" if self._writer else "None"
         )
+        # Note: We don't acquire the lock here because:
+        # 1. This is called from coordinator.stop() which needs to interrupt
+        #    in-flight operations
+        # 2. The lock might be held by a network call that's stuck
+        # 3. Setting _reader/_writer to None will cause subsequent operations
+        #    to fail
         if self._writer is not None:
             with contextlib.suppress(Exception):
+                # Shutdown the socket to interrupt any pending reads immediately
+                # This causes reader.readuntil() to fail with ConnectionResetError
+                socket_obj = self._writer.get_extra_info("socket")
+                if socket_obj is not None:
+                    socket_obj.shutdown(socket.SHUT_RDWR)
                 self._writer.close()
         self._reader = None
         self._writer = None
         _LOGGER.debug("close_nowait(): cleared reader/writer")
 
-    async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:
+    async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:  # noqa: PLR0915
         """
         Send a command and return the response string.
 
@@ -70,6 +82,7 @@ class TriadConnection:
         _LOGGER.debug("_send_command(): waiting for lock")
         async with self._lock:
             _LOGGER.debug("_send_command(): acquired lock")
+            # Check if connection was closed (e.g., by coordinator.stop())
             if self._writer is None or self._reader is None:
                 _LOGGER.debug("_send_command(): transport missing; calling connect()")
                 await self.connect()
@@ -85,7 +98,28 @@ class TriadConnection:
             # Add a very small delay for device tolerance
             await asyncio.sleep(0.1)
             _LOGGER.debug("_send_command(): awaiting response")
-            response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=5)
+            # Check connection state before reading - if closed, fail immediately
+            if self._reader is None or self._writer is None:
+                msg = "Connection closed"
+                raise OSError(msg)
+            try:
+                response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=5)
+            except (
+                asyncio.CancelledError,
+                ConnectionResetError,
+                BrokenPipeError,
+                asyncio.IncompleteReadError,
+            ):
+                # If cancelled or connection was closed, check state and raise
+                # appropriate error
+                if self._reader is None or self._writer is None:
+                    msg = "Connection closed"
+                    raise OSError(msg) from None
+                # Re-raise the original exception
+                raise
+            except OSError:
+                # Re-raise OSError as-is (might be from socket shutdown)
+                raise
             _LOGGER.debug("_send_command(): received %d bytes", len(response))
             _LOGGER.debug("Raw response: %r", response)
             text = response.decode(errors="replace").strip("\x00").strip()

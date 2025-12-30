@@ -80,6 +80,9 @@ class TriadCoordinator:
 
     async def stop(self) -> None:
         """Stop the worker and cancel pending commands."""
+        # Close connection first to make any in-flight network calls fail immediately
+        # This helps tasks stuck in network I/O respond to cancellation faster
+        self._conn.close_nowait()
         if self._worker is not None:
             self._worker.cancel()
             # Drain queue and cancel futures
@@ -88,13 +91,15 @@ class TriadCoordinator:
                     cmd = self._queue.get_nowait()
                     if not cmd.future.done():
                         cmd.future.set_exception(asyncio.CancelledError())
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._worker
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(self._worker, timeout=1.0)
             self._worker = None
         if self._poll_task is not None:
             self._poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._poll_task
+            # Wait for polling task to finish, but with a timeout to avoid hanging
+            # if the task is stuck in a network call
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(self._poll_task, timeout=1.0)
             self._poll_task = None
 
     async def disconnect(self) -> None:
@@ -153,40 +158,48 @@ class TriadCoordinator:
 
     async def _run_poll(self) -> None:
         """Round-robin poll: refresh one output every poll interval."""
-        while True:
-            outputs = [o for o in list(self._outputs) if o is not None]
-            if not outputs:
-                await asyncio.sleep(self._poll_interval)
-                continue
-            # Choose next output in a stable order
-            self._poll_index = self._poll_index % len(outputs)
-            target = outputs[self._poll_index]
-            self._poll_index += 1
-            try:
-                await target.refresh_and_notify()
-                # After refreshing the output, reconcile the coordinator's
-                # zone active sets with the polled device state. This ensures
-                # that external changes (or other controllers) are reflected
-                # and that trigger zone commands are sent when zones move
-                # between empty and non-empty.
+        try:
+            while True:
+                outputs = [o for o in list(self._outputs) if o is not None]
+                if not outputs:
+                    await asyncio.sleep(self._poll_interval)
+                    continue
+                # Choose next output in a stable order
+                self._poll_index = self._poll_index % len(outputs)
+                target = outputs[self._poll_index]
+                self._poll_index += 1
                 try:
-                    zone = self._zone_for_output(target.number)
-                    active = self._zone_active_outputs.setdefault(zone, set())
-                    if target.has_source:
-                        was_empty = len(active) == 0
-                        if target.number not in active:
-                            active.add(target.number)
-                            if was_empty and len(active) == 1:
-                                await self.set_trigger_zone(zone=zone, on=True)
-                    elif target.number in active:
-                        active.discard(target.number)
-                        if len(active) == 0:
-                            await self.set_trigger_zone(zone=zone, on=False)
+                    await target.refresh_and_notify()
+                    # After refreshing the output, reconcile the coordinator's
+                    # zone active sets with the polled device state. This ensures
+                    # that external changes (or other controllers) are reflected
+                    # and that trigger zone commands are sent when zones move
+                    # between empty and non-empty.
+                    try:
+                        zone = self._zone_for_output(target.number)
+                        active = self._zone_active_outputs.setdefault(zone, set())
+                        if target.has_source:
+                            was_empty = len(active) == 0
+                            if target.number not in active:
+                                active.add(target.number)
+                                if was_empty and len(active) == 1:
+                                    await self.set_trigger_zone(zone=zone, on=True)
+                        elif target.number in active:
+                            active.discard(target.number)
+                            if len(active) == 0:
+                                await self.set_trigger_zone(zone=zone, on=False)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("Failed to reconcile zone sets after refresh")
+                except asyncio.CancelledError:
+                    # Task was cancelled during refresh, propagate immediately
+                    raise
                 except Exception:  # noqa: BLE001
-                    _LOGGER.debug("Failed to reconcile zone sets after refresh")
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("Rolling poll refresh failed for output")
-            await asyncio.sleep(self._poll_interval)
+                    _LOGGER.debug("Rolling poll refresh failed for output")
+                await asyncio.sleep(self._poll_interval)
+        except asyncio.CancelledError:
+            # Task was cancelled, exit cleanly
+            _LOGGER.debug("Polling task cancelled")
+            raise
 
     async def _execute(self, op: Callable[[TriadConnection], Awaitable[Any]]) -> Any:
         """Enqueue a command and await its result or error."""
