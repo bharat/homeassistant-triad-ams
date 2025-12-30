@@ -23,3 +23,11 @@ keep-runtime-typing = true
 
 [lint.mccabe]
 max-complexity = 25
+
+[lint.per-file-ignores]
+# Disable rules that are not applicable to test files
+"tests/**/*.py" = [
+    "S101",   # Use of `assert` detected (assert is normal in tests)
+    "PLR2004", # Magic value used in comparison (magic values are normal in tests)
+    "SLF001", # Private member accessed (accessing private members is normal in tests)
+]
