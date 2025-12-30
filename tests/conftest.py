@@ -52,12 +52,16 @@ def mock_config_entry() -> MagicMock:
 @pytest.fixture
 def mock_connection() -> AsyncMock:
     """Create a mock TriadConnection."""
+    # Use configure_mock to set synchronous methods before async ones
     conn = AsyncMock()
+    # Set synchronous method first to prevent AsyncMock from auto-creating it
+    close_nowait_mock = MagicMock()
+    conn.close_nowait = close_nowait_mock
+    # Now set other attributes
     conn.host = "192.168.1.100"
     conn.port = 52000
     conn.connect = AsyncMock()
     conn.disconnect = AsyncMock()
-    conn.close_nowait = MagicMock()
     conn.set_output_volume = AsyncMock()
     conn.get_output_volume = AsyncMock(return_value=0.5)
     conn.set_output_mute = AsyncMock()

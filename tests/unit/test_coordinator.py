@@ -13,6 +13,8 @@ from custom_components.triad_ams.models import TriadAmsOutput
 def mock_connection() -> AsyncMock:
     """Create a mock TriadConnection."""
     conn = AsyncMock()
+    # Set synchronous method first to prevent AsyncMock from auto-creating it
+    conn.close_nowait = MagicMock()
     conn.connect = AsyncMock()
     conn.disconnect = AsyncMock()
     conn.set_output_volume = AsyncMock()

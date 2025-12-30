@@ -404,8 +404,11 @@ class TestTriadAmsMediaPlayerLinkSubscription:
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test updating link subscription."""
+        # Return a regular callable, not an AsyncMock
+        unsub_func = MagicMock()
         with patch(
-            "custom_components.triad_ams.media_player.async_track_state_change_event"
+            "custom_components.triad_ams.media_player.async_track_state_change_event",
+            return_value=unsub_func,
         ):
             media_player.hass = mock_hass
             media_player._input_links = {1: "media_player.input1"}
@@ -420,19 +423,36 @@ class TestTriadAmsMediaPlayerLinkSubscription:
     async def test_link_subscription_removal(
         self,
         media_player: TriadAmsMediaPlayer,
-        mock_hass: MagicMock,  # noqa: ARG002
+        mock_hass: MagicMock,
     ) -> None:
         """Test removing link subscription."""
-        mock_unsub = MagicMock()
-        media_player._linked_unsub = mock_unsub
-        media_player._linked_entity_id = "media_player.input1"
-        media_player.output.source = None
+        # Patch async_track_state_change_event - it's a regular function that
+        # returns a synchronous unsubscribe callable. Use new_callable=MagicMock
+        # to prevent patch from auto-detecting it as async based on the name.
+        unsub_func = MagicMock()
+        with patch(
+            "custom_components.triad_ams.media_player.async_track_state_change_event",
+            new_callable=MagicMock,
+            return_value=unsub_func,
+        ):
+            media_player.hass = mock_hass
 
-        media_player._update_link_subscription()
+            # Use a regular callable, not a mock, to avoid AsyncMock issues
+            unsub_called = False
 
-        # Should unsubscribe
-        mock_unsub.assert_called_once()
-        assert media_player._linked_entity_id is None
+            def mock_unsub() -> None:
+                nonlocal unsub_called
+                unsub_called = True
+
+            media_player._linked_unsub = mock_unsub
+            media_player._linked_entity_id = "media_player.input1"
+            media_player.output.source = None
+
+            media_player._update_link_subscription()
+
+            # Should unsubscribe
+            assert unsub_called
+            assert media_player._linked_entity_id is None
 
     @pytest.mark.asyncio
     async def test_handle_linked_state_change(
