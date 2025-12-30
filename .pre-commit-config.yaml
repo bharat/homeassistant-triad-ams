@@ -15,3 +15,14 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"]
       - id: check-yaml
+
+  - repo: local
+    hooks:
+      - id: pytest-unit
+        name: pytest unit tests
+        entry: pytest
+        language: system
+        types: [python]
+        args: ["tests/unit/", "-v", "--tb=short"]
+        pass_filenames: false
+        always_run: true
