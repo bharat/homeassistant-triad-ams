@@ -251,12 +251,12 @@ class TestTriadAmsIntegration:
 
                 # Stop simulator
                 await simulator.stop()
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
 
                 # Restart simulator on the same port
                 await simulator.start()
                 # Wait for simulator to be fully ready
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
 
                 # Coordinator should automatically reconnect on next command
                 # The reconnect happens in the worker when the command is executed

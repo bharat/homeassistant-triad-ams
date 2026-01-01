@@ -224,7 +224,7 @@ class TestTriadCoordinatorPacing:
         start_time = asyncio.get_running_loop().time()
         await coordinator.set_output_volume(1, 0.5)
         await coordinator.set_output_volume(1, 0.6)
-        await asyncio.sleep(0.2)  # Wait for both commands
+        await asyncio.sleep(0.12)  # Wait for both commands
 
         elapsed = asyncio.get_running_loop().time() - start_time
         # Should take at least min_send_interval between commands
@@ -340,7 +340,7 @@ class TestTriadCoordinatorPolling:
         coordinator._poll_interval = 0.05
         await coordinator.start()
         # Wait for at least 2 poll cycles to ensure both outputs are polled
-        await asyncio.sleep(0.11)
+        await asyncio.sleep(0.07)
 
         # Both should have been polled
         assert output1.refresh_and_notify.call_count >= 1
