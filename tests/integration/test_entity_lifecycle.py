@@ -3,8 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
@@ -15,44 +13,7 @@ from custom_components.triad_ams.media_player import (
     _remove_orphaned_devices,
 )
 from custom_components.triad_ams.models import TriadAmsOutput
-from tests.integration.simulator import triad_ams_simulator
-
-
-@pytest.fixture
-def mock_hass() -> MagicMock:
-    """Create a mock Home Assistant instance."""
-    hass = MagicMock(spec=HomeAssistant)
-    hass.states = MagicMock()
-    hass.states.get = MagicMock(return_value=None)
-    hass.async_create_task = MagicMock()
-    # Add helpers attribute for entity/device registry access
-    hass.helpers = MagicMock()
-    # Add data attribute for registry singleton storage
-    hass.data = {}
-    return hass
-
-
-@pytest.fixture
-def mock_config_entry() -> MagicMock:
-    """Create a mock config entry."""
-    entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry_123"
-    entry.data = {
-        "host": "127.0.0.1",
-        "port": 52000,
-        "model": "AMS8",
-        "input_count": 8,
-        "output_count": 8,
-    }
-    entry.options = {
-        "active_inputs": [1, 2, 3, 4],
-        "active_outputs": [1, 2],
-        "input_links": {},
-    }
-    entry.title = "Test Triad AMS"
-    entry.runtime_data = None
-    entry.add_update_listener = MagicMock(return_value=MagicMock())
-    return entry
+from tests.integration.simulator import TriadAmsSimulator
 
 
 @pytest.mark.integration
@@ -60,129 +21,93 @@ class TestEntityLifecycle:
     """Test entity lifecycle management."""
 
     @pytest.mark.asyncio
-    async def test_entity_creation_and_registration(self) -> None:
+    async def test_entity_creation_and_registration(
+        self,
+        simulator_fixture: tuple[TriadAmsSimulator, str, int],
+        coordinator_fixture: TriadCoordinator,
+        input_names: dict[int, str],
+    ) -> None:
         """Test that entities are created and registered."""
-        async with triad_ams_simulator() as (simulator, host, port):
-            coordinator = TriadCoordinator(
-                host, port, 8, min_send_interval=0.01, poll_interval=1.0
-            )
-            await coordinator.start()
+        simulator, _host, _port = simulator_fixture
+        coordinator = coordinator_fixture
 
-            try:
-                input_names = {i: f"Input {i}" for i in range(1, 9)}
-                outputs = []
-                for i in [1, 2]:
-                    output = TriadAmsOutput(
-                        i, f"Output {i}", coordinator, outputs, input_names
-                    )
-                    outputs.append(output)
-                    coordinator.register_output(output)
+        outputs = []
+        for i in [1, 2]:
+            output = TriadAmsOutput(i, f"Output {i}", coordinator, outputs, input_names)
+            outputs.append(output)
+            coordinator.register_output(output)
 
-                # Verify outputs are registered
-                assert len(list(coordinator._outputs)) == 2
+        # Verify outputs are registered
+        assert len(list(coordinator._outputs)) == 2
 
-                # Verify outputs can be controlled
-                await outputs[0].set_volume(0.5)
-                assert abs(simulator.get_volume(1) - 0.5) < 0.1
-
-            finally:
-                await coordinator.stop()
-                await coordinator.disconnect()
+        # Verify outputs can be controlled
+        await outputs[0].set_volume(0.5)
+        assert abs(simulator.get_volume(1) - 0.5) < 0.1
 
     @pytest.mark.asyncio
-    async def test_entity_listener_management(self) -> None:
+    async def test_entity_listener_management(
+        self, output_fixture: TriadAmsOutput
+    ) -> None:
         """Test that entity listeners are properly managed."""
-        async with triad_ams_simulator() as (_simulator, host, port):
-            coordinator = TriadCoordinator(
-                host, port, 8, min_send_interval=0.01, poll_interval=1.0
-            )
-            await coordinator.start()
+        output = output_fixture
 
-            try:
-                input_names = {i: f"Input {i}" for i in range(1, 9)}
-                output = TriadAmsOutput(1, "Output 1", coordinator, None, input_names)
+        # Add listener
+        listener_called = False
 
-                # Add listener
-                listener_called = False
+        def listener() -> None:
+            nonlocal listener_called
+            listener_called = True
 
-                def listener() -> None:
-                    nonlocal listener_called
-                    listener_called = True
+        unsub = output.add_listener(listener)
 
-                unsub = output.add_listener(listener)
+        # Trigger notification
+        await output.refresh_and_notify()
+        assert listener_called
 
-                # Trigger notification
-                await output.refresh_and_notify()
-                assert listener_called
-
-                # Remove listener
-                unsub()
-                listener_called = False
-                await output.refresh_and_notify()
-                assert not listener_called
-
-            finally:
-                await coordinator.stop()
-                await coordinator.disconnect()
+        # Remove listener
+        unsub()
+        listener_called = False
+        await output.refresh_and_notify()
+        assert not listener_called
 
     @pytest.mark.asyncio
-    async def test_output_refresh_updates_state(self) -> None:
+    async def test_output_refresh_updates_state(
+        self, output_fixture: TriadAmsOutput
+    ) -> None:
         """Test that refresh updates output state from device."""
-        async with triad_ams_simulator() as (_simulator, host, port):
-            coordinator = TriadCoordinator(
-                host, port, 8, min_send_interval=0.01, poll_interval=1.0
-            )
-            await coordinator.start()
+        output = output_fixture
 
-            try:
-                input_names = {i: f"Input {i}" for i in range(1, 9)}
-                output = TriadAmsOutput(1, "Output 1", coordinator, None, input_names)
+        # Set state via commands
+        await output.set_volume(0.6)
+        await output.set_muted(muted=True)
+        await output.set_source(2)
 
-                # Set state via commands
-                await output.set_volume(0.6)
-                await output.set_muted(muted=True)
-                await output.set_source(2)
+        # Clear local state
+        output._volume = None
+        output._muted = False
+        output._assigned_input = None
 
-                # Clear local state
-                output._volume = None
-                output._muted = False
-                output._assigned_input = None
-
-                # Refresh should restore state
-                await output.refresh()
-                assert abs(output.volume - 0.6) < 0.1
-                assert output.muted is True
-                assert output.source == 2
-
-            finally:
-                await coordinator.stop()
-                await coordinator.disconnect()
+        # Refresh should restore state
+        await output.refresh()
+        assert abs(output.volume - 0.6) < 0.1
+        assert output.muted is True
+        assert output.source == 2
 
     @pytest.mark.asyncio
-    async def test_output_refresh_handles_audio_off(self) -> None:
+    async def test_output_refresh_handles_audio_off(
+        self, output_fixture: TriadAmsOutput
+    ) -> None:
         """Test that refresh handles audio off state."""
-        async with triad_ams_simulator() as (_simulator, host, port):
-            coordinator = TriadCoordinator(
-                host, port, 8, min_send_interval=0.01, poll_interval=1.0
-            )
-            await coordinator.start()
+        output = output_fixture
 
-            try:
-                input_names = {i: f"Input {i}" for i in range(1, 9)}
-                output = TriadAmsOutput(1, "Output 1", coordinator, None, input_names)
+        # Set source then disconnect
+        await output.set_source(2)
+        await output.turn_off()
 
-                # Set source then disconnect
-                await output.set_source(2)
-                await output.turn_off()
-
-                # Refresh should show off state
-                await output.refresh()
-                assert output.source is None
-                assert output.is_on is False
-
-            finally:
-                await coordinator.stop()
-                await coordinator.disconnect()
+        # Refresh should show off state
+        await output.refresh()
+        assert output.source is None
+        assert output.is_on is False
 
 
 class TestEntityCleanup:
