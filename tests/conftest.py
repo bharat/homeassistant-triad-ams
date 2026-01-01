@@ -16,6 +16,12 @@ from custom_components.triad_ams.models import TriadAmsOutput
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
 
+# Import pytest_socket at module level to avoid PLC0415
+try:
+    import pytest_socket
+except ImportError:
+    pytest_socket = None  # Optional dependency
+
 
 @pytest.fixture
 def mock_hass() -> MagicMock:
@@ -135,10 +141,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop]:
 def enable_sockets_for_integration_tests(request: pytest.FixtureRequest) -> None:
     """Enable socket usage for integration tests."""
     # Check if this is an integration test by looking at the test path
-    if "integration" in str(request.node.fspath):
-        # Import here to avoid circular imports
-        import pytest_socket  # noqa: PLC0415
-
+    if "integration" in str(request.node.fspath) and pytest_socket is not None:
         pytest_socket.enable_socket()
 
 

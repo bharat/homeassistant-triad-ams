@@ -338,7 +338,7 @@ class TestTriadAmsMediaPlayerServices:
     async def test_async_turn_on_with_source_invalid_link(
         self,
         media_player: TriadAmsMediaPlayer,
-        mock_output: MagicMock,  # noqa: ARG002
+        mock_output: MagicMock,
     ) -> None:
         """Test turn_on_with_source with invalid input link."""
         media_player._input_links = {1: "media_player.input1"}
@@ -350,7 +350,7 @@ class TestTriadAmsMediaPlayerServices:
     async def test_async_turn_on_with_source_inactive(
         self,
         media_player: TriadAmsMediaPlayer,
-        mock_output: MagicMock,  # noqa: ARG002
+        mock_output: MagicMock,
     ) -> None:
         """Test turn_on_with_source with inactive input."""
         media_player._input_links = {1: "media_player.input1"}
@@ -384,7 +384,7 @@ class TestTriadAmsMediaPlayerLifecycle:
     async def test_async_will_remove_from_hass(
         self,
         media_player: TriadAmsMediaPlayer,
-        mock_output: MagicMock,  # noqa: ARG002
+        mock_output: MagicMock,
     ) -> None:
         """Test entity removed from hass."""
         mock_unsub = MagicMock()

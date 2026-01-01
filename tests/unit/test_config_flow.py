@@ -81,7 +81,7 @@ class TestTriadAmsConfigFlowUserStep:
     async def test_user_step_with_input(
         self,
         flow: TriadAmsConfigFlow,
-        hass: MagicMock,  # noqa: ARG002
+        hass: MagicMock,
     ) -> None:
         """Test user step with user input."""
         flow.async_set_unique_id = AsyncMock()
@@ -108,7 +108,7 @@ class TestTriadAmsConfigFlowUserStep:
     async def test_user_step_default_name(
         self,
         flow: TriadAmsConfigFlow,
-        hass: MagicMock,  # noqa: ARG002
+        hass: MagicMock,
     ) -> None:
         """Test user step generates default name."""
         flow.async_set_unique_id = AsyncMock()
@@ -130,7 +130,7 @@ class TestTriadAmsConfigFlowUserStep:
     async def test_user_step_unique_id(
         self,
         flow: TriadAmsConfigFlow,
-        hass: MagicMock,  # noqa: ARG002
+        hass: MagicMock,
     ) -> None:
         """Test unique ID generation."""
         flow.async_set_unique_id = AsyncMock()
@@ -167,7 +167,7 @@ class TestTriadAmsConfigFlowChannelsStep:
     async def test_channels_step_with_input(
         self,
         flow: TriadAmsConfigFlow,
-        hass: MagicMock,  # noqa: ARG002
+        hass: MagicMock,
     ) -> None:
         """Test channels step with user input."""
         flow._host = "192.168.1.100"
@@ -199,7 +199,7 @@ class TestTriadAmsConfigFlowChannelsStep:
     async def test_channels_step_no_selections(
         self,
         flow: TriadAmsConfigFlow,
-        hass: MagicMock,  # noqa: ARG002
+        hass: MagicMock,
     ) -> None:
         """Test channels step with no selections."""
         flow._host = "192.168.1.100"
@@ -335,7 +335,7 @@ class TestTriadAmsOptionsFlowHandler:
     async def test_options_flow_with_input(
         self,
         options_flow: TriadAmsOptionsFlowHandler,
-        hass: HomeAssistant,  # noqa: ARG002
+        hass: HomeAssistant,
     ) -> None:
         """Test options flow with user input."""
         user_input = {
@@ -361,7 +361,7 @@ class TestTriadAmsOptionsFlowHandler:
     async def test_options_flow_name_update(
         self,
         options_flow: TriadAmsOptionsFlowHandler,
-        hass: HomeAssistant,  # noqa: ARG002
+        hass: HomeAssistant,
     ) -> None:
         """Test options flow updates entry title."""
         user_input = {

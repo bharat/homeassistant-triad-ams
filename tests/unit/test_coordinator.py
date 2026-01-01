@@ -215,7 +215,7 @@ class TestTriadCoordinatorPacing:
     async def test_pacing_enforcement(
         self,
         coordinator: TriadCoordinator,
-        mock_connection: AsyncMock,  # noqa: ARG002
+        mock_connection: AsyncMock,
     ) -> None:
         """Test that commands are paced."""
         coordinator._min_send_interval = 0.1
