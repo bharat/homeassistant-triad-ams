@@ -1,6 +1,5 @@
 """Entity lifecycle and cleanup tests."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -84,7 +83,6 @@ class TestEntityLifecycle:
 
                 # Verify outputs can be controlled
                 await outputs[0].set_volume(0.5)
-                await asyncio.sleep(0.1)
                 assert abs(simulator.get_volume(1) - 0.5) < 0.1
 
             finally:
@@ -144,7 +142,6 @@ class TestEntityLifecycle:
                 await output.set_volume(0.6)
                 await output.set_muted(muted=True)
                 await output.set_source(2)
-                await asyncio.sleep(0.1)
 
                 # Clear local state
                 output._volume = None
@@ -176,9 +173,7 @@ class TestEntityLifecycle:
 
                 # Set source then disconnect
                 await output.set_source(2)
-                await asyncio.sleep(0.1)
                 await output.turn_off()
-                await asyncio.sleep(0.1)
 
                 # Refresh should show off state
                 await output.refresh()

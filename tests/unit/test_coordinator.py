@@ -128,8 +128,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_volume(1, 0.75)
 
-        # Wait a bit for command to process
-        await asyncio.sleep(0.1)
         mock_connection.set_output_volume.assert_called_once_with(1, 0.75)
         await coordinator.stop()
 
@@ -153,7 +151,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_mute(1, mute=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_output_mute.assert_called_once_with(1, mute=True)
         await coordinator.stop()
 
@@ -165,7 +162,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.volume_step_up(1, large=False)
 
-        await asyncio.sleep(0.1)
         mock_connection.volume_step_up.assert_called_once_with(1, large=False)
         await coordinator.stop()
 
@@ -177,7 +173,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.volume_step_down(1, large=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.volume_step_down.assert_called_once_with(1, large=True)
         await coordinator.stop()
 
@@ -189,7 +184,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_to_input(1, 2)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_output_to_input.assert_called_once_with(1, 2)
         mock_connection.set_trigger_zone.assert_called_once_with(zone=1, on=True)
         await coordinator.stop()
@@ -214,11 +208,9 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         # First set a source to make zone active
         await coordinator.set_output_to_input(1, 2)
-        await asyncio.sleep(0.1)
 
         # Now disconnect
         await coordinator.disconnect_output(1)
-        await asyncio.sleep(0.1)
 
         mock_connection.disconnect_output.assert_called_once_with(1, 8)
         # Should turn off trigger zone when zone becomes empty
@@ -233,7 +225,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_trigger_zone(zone=1, on=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_trigger_zone.assert_called_once_with(zone=1, on=True)
         await coordinator.stop()
 
@@ -269,7 +260,6 @@ class TestTriadCoordinatorPacing:
         await coordinator.start()
         await coordinator.set_output_volume(1, 0.5)
 
-        await asyncio.sleep(0.1)
         mock_connection.connect.assert_called()
         await coordinator.stop()
 
@@ -370,7 +360,8 @@ class TestTriadCoordinatorPolling:
 
         coordinator._poll_interval = 0.05
         await coordinator.start()
-        await asyncio.sleep(0.15)  # Allow a few poll cycles
+        # Wait for at least 2 poll cycles to ensure both outputs are polled
+        await asyncio.sleep(0.11)
 
         # Both should have been polled
         assert output1.refresh_and_notify.call_count >= 1
@@ -389,7 +380,8 @@ class TestTriadCoordinatorPolling:
         coordinator.register_output(output)
         coordinator._poll_interval = 0.05
         await coordinator.start()
-        await asyncio.sleep(0.1)
+        # Wait for at least one poll cycle
+        await asyncio.sleep(0.06)
 
         # Should continue polling despite errors
         assert output.refresh_and_notify.call_count >= 1
@@ -421,7 +413,6 @@ class TestTriadCoordinatorZoneManagement:
         await coordinator.start()
         await coordinator.set_output_to_input(1, 2)
 
-        await asyncio.sleep(0.1)
         # Should turn on zone 1
         mock_connection.set_trigger_zone.assert_called_with(zone=1, on=True)
         await coordinator.stop()
@@ -434,11 +425,9 @@ class TestTriadCoordinatorZoneManagement:
         await coordinator.start()
         # Route output 1 (zone 1)
         await coordinator.set_output_to_input(1, 2)
-        await asyncio.sleep(0.1)
 
         # Disconnect it
         await coordinator.disconnect_output(1)
-        await asyncio.sleep(0.1)
 
         # Should turn off zone 1
         assert any(

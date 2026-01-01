@@ -64,7 +64,6 @@ class TestTriadAmsIntegration:
 
                 # Test volume set
                 await coordinator.set_output_volume(1, 0.75)
-                await asyncio.sleep(0.1)
                 assert abs(simulator.get_volume(1) - 0.75) < 0.1
 
             finally:
@@ -86,7 +85,6 @@ class TestTriadAmsIntegration:
 
                 # Set volume
                 await output.set_volume(0.6)
-                await asyncio.sleep(0.1)
                 assert abs(simulator.get_volume(1) - 0.6) < 0.1
                 assert abs(output.volume - 0.6) < 0.1
 
@@ -114,13 +112,11 @@ class TestTriadAmsIntegration:
 
                 # Set mute
                 await output.set_muted(muted=True)
-                await asyncio.sleep(0.1)
                 assert simulator.get_mute(1) is True
                 assert output.muted is True
 
                 # Unmute
                 await output.set_muted(muted=False)
-                await asyncio.sleep(0.1)
                 assert simulator.get_mute(1) is False
                 assert output.muted is False
 
@@ -143,14 +139,12 @@ class TestTriadAmsIntegration:
 
                 # Route to input 2
                 await output.set_source(2)
-                await asyncio.sleep(0.1)
                 assert simulator.get_source(1) == 2
                 assert output.source == 2
                 assert output.source_name == "Input 2"
 
                 # Disconnect
                 await output.turn_off()
-                await asyncio.sleep(0.1)
                 assert simulator.get_source(1) is None
                 assert output.source is None
 
@@ -173,18 +167,15 @@ class TestTriadAmsIntegration:
 
                 # Set initial volume
                 await output.set_volume(0.5)
-                await asyncio.sleep(0.1)
                 initial_volume = simulator.get_volume(1)
 
                 # Step up
                 await output.volume_up_step(large=False)
-                await asyncio.sleep(0.1)
                 new_volume = simulator.get_volume(1)
                 assert new_volume > initial_volume
 
                 # Step down
                 await output.volume_down_step(large=False)
-                await asyncio.sleep(0.1)
                 final_volume = simulator.get_volume(1)
                 assert final_volume < new_volume
 
@@ -207,14 +198,11 @@ class TestTriadAmsIntegration:
 
                 # Set source and turn off
                 await output.set_source(3)
-                await asyncio.sleep(0.1)
                 await output.turn_off()
-                await asyncio.sleep(0.1)
                 assert simulator.get_source(1) is None
 
                 # Turn on should restore source
                 await output.turn_on()
-                await asyncio.sleep(0.1)
                 assert simulator.get_source(1) == 3
                 assert output.source == 3
 
@@ -238,19 +226,15 @@ class TestTriadAmsIntegration:
 
                 # Route first output (should turn on zone 1)
                 await output1.set_source(1)
-                await asyncio.sleep(0.1)
                 assert simulator.get_zone_state(1) is True
 
                 # Route second output (zone should stay on)
                 await output2.set_source(2)
-                await asyncio.sleep(0.1)
                 assert simulator.get_zone_state(1) is True
 
                 # Disconnect both (should turn off zone)
                 await output1.turn_off()
-                await asyncio.sleep(0.1)
                 await output2.turn_off()
-                await asyncio.sleep(0.1)
                 assert simulator.get_zone_state(1) is False
 
             finally:
@@ -277,7 +261,8 @@ class TestTriadAmsIntegration:
                 # Note: We can't directly modify simulator state, but we can
                 # set it via commands and verify polling picks it up
                 await output.set_volume(0.8)
-                await asyncio.sleep(0.2)  # Wait for poll cycle
+                # Wait for at least one poll cycle (poll_interval=0.05)
+                await asyncio.sleep(0.06)
 
                 # Refresh should get current state
                 await output.refresh()
@@ -305,7 +290,6 @@ class TestTriadAmsIntegration:
                 # Set different volumes
                 await output1.set_volume(0.5)
                 await output2.set_volume(0.7)
-                await asyncio.sleep(0.2)
 
                 assert abs(simulator.get_volume(1) - 0.5) < 0.1
                 assert abs(simulator.get_volume(2) - 0.7) < 0.1
@@ -313,7 +297,6 @@ class TestTriadAmsIntegration:
                 # Route to different sources
                 await output1.set_source(1)
                 await output2.set_source(2)
-                await asyncio.sleep(0.2)
 
                 assert simulator.get_source(1) == 1
                 assert simulator.get_source(2) == 2
@@ -344,12 +327,10 @@ class TestTriadAmsIntegration:
 
                 # Set volume
                 await output.set_volume(0.5)
-                await asyncio.sleep(0.1)
                 assert abs(simulator.get_volume(1) - 0.5) < 0.1
 
                 # Explicitly disconnect coordinator (clean disconnect)
                 await coordinator.disconnect()
-                await asyncio.sleep(0.1)
 
                 # Stop simulator
                 await simulator.stop()
@@ -363,7 +344,7 @@ class TestTriadAmsIntegration:
                 # Coordinator should automatically reconnect on next command
                 # The reconnect happens in the worker when the command is executed
                 await output.set_volume(0.6)
-                await asyncio.sleep(0.4)
+                # Command already awaits completion, so no sleep needed
                 # Verify the volume was set (coordinator should have reconnected)
                 volume = await coordinator.get_output_volume(1)
                 assert abs(volume - 0.6) < 0.1
