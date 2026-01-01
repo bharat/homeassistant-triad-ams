@@ -477,3 +477,79 @@ class TestTriadAmsMediaPlayerLinkSubscription:
 
         media_player._update_link_subscription.assert_called_once()
         media_player.async_write_ha_state.assert_called_once()
+
+    def test_current_linked_entity_id_with_source(
+        self, media_player: TriadAmsMediaPlayer
+    ) -> None:
+        """Test _current_linked_entity_id when source is set."""
+        media_player._input_links = {1: "media_player.input1"}
+        media_player.output.source = 1
+
+        result = media_player._current_linked_entity_id()
+
+        assert result == "media_player.input1"
+
+    def test_current_linked_entity_id_no_source(
+        self, media_player: TriadAmsMediaPlayer
+    ) -> None:
+        """Test _current_linked_entity_id when source is None."""
+        media_player.output.source = None
+
+        result = media_player._current_linked_entity_id()
+
+        assert result is None
+
+    def test_linked_attr_no_linked_entity(
+        self, media_player: TriadAmsMediaPlayer
+    ) -> None:
+        """Test _linked_attr when no linked entity."""
+        media_player._linked_entity_id = None
+
+        result = media_player._linked_attr("media_title")
+
+        assert result is None
+
+    def test_linked_attr_no_hass(self, media_player: TriadAmsMediaPlayer) -> None:
+        """Test _linked_attr when hass is None."""
+        media_player._linked_entity_id = "media_player.test"
+        media_player.hass = None
+
+        result = media_player._linked_attr("media_title")
+
+        assert result is None
+
+    def test_linked_attr_state_not_found(
+        self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Test _linked_attr when state is not found."""
+        media_player.hass = mock_hass
+        media_player._linked_entity_id = "media_player.test"
+        mock_hass.states.get = MagicMock(return_value=None)
+
+        result = media_player._linked_attr("media_title")
+
+        assert result is None
+
+    def test_media_content_id(
+        self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Test media_content_id from linked entity."""
+        mock_state = MagicMock()
+        mock_state.attributes = {"media_content_id": "track_123"}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
+        media_player.hass = mock_hass
+        media_player._linked_entity_id = "media_player.test"
+        assert media_player.media_content_id == "track_123"
+
+    def test_media_content_type(
+        self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Test media_content_type from linked entity."""
+        mock_state = MagicMock()
+        mock_state.attributes = {"media_content_type": "music"}
+        mock_hass.states.get = MagicMock(return_value=mock_state)
+
+        media_player.hass = mock_hass
+        media_player._linked_entity_id = "media_player.test"
+        assert media_player.media_content_type == "music"
