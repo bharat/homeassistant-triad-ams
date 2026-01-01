@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .models import TriadAmsOutput
 
 from .connection import TriadConnection
+from .const import CONNECTION_TIMEOUT, SHUTDOWN_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,14 +93,14 @@ class TriadCoordinator:
                     if not cmd.future.done():
                         cmd.future.set_exception(asyncio.CancelledError())
             with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                await asyncio.wait_for(self._worker, timeout=1.0)
+                await asyncio.wait_for(self._worker, timeout=SHUTDOWN_TIMEOUT)
             self._worker = None
         if self._poll_task is not None:
             self._poll_task.cancel()
             # Wait for polling task to finish, but with a timeout to avoid hanging
             # if the task is stuck in a network call
             with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-                await asyncio.wait_for(self._poll_task, timeout=1.0)
+                await asyncio.wait_for(self._poll_task, timeout=SHUTDOWN_TIMEOUT)
             self._poll_task = None
 
     async def disconnect(self) -> None:
@@ -112,7 +113,7 @@ class TriadCoordinator:
         self._outputs.add(output)
 
     async def _ensure_connection(self) -> None:
-        await asyncio.wait_for(self._conn.connect(), timeout=5)
+        await asyncio.wait_for(self._conn.connect(), timeout=CONNECTION_TIMEOUT)
 
     async def _run_worker(self) -> None:
         """Worker: dequeue, pace, ensure connection, execute, propagate result/error."""
@@ -144,7 +145,9 @@ class TriadCoordinator:
                 self._conn.close_nowait()
                 # Best-effort immediate reconnect so subsequent commands are ready.
                 try:
-                    await asyncio.wait_for(self._conn.connect(), timeout=5)
+                    await asyncio.wait_for(
+                        self._conn.connect(), timeout=CONNECTION_TIMEOUT
+                    )
                     _LOGGER.info("Reconnected to Triad AMS after error")
                 except Exception as reconnect_exc:  # noqa: BLE001 - log and proceed
                     _LOGGER.warning(

@@ -11,7 +11,12 @@ import re
 import socket
 from typing import cast
 
-from .const import VOLUME_STEPS
+from .const import (
+    CONNECTION_TIMEOUT,
+    DEVICE_COMMAND_DELAY,
+    POST_CONNECT_DELAY,
+    VOLUME_STEPS,
+)
 from .volume_lut import step_for_db
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +42,7 @@ class TriadConnection:
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
         _LOGGER.info("Connected to Triad AMS at %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(POST_CONNECT_DELAY)
         _LOGGER.debug("connect(): ready (post-sleep)")
 
     async def disconnect(self) -> None:
@@ -96,14 +101,16 @@ class TriadConnection:
             await writer.drain()
             _LOGGER.debug("_send_command(): after drain()")
             # Add a very small delay for device tolerance
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(DEVICE_COMMAND_DELAY)
             _LOGGER.debug("_send_command(): awaiting response")
             # Check connection state before reading - if closed, fail immediately
             if self._reader is None or self._writer is None:
                 msg = "Connection closed"
                 raise OSError(msg)
             try:
-                response = await asyncio.wait_for(reader.readuntil(b"\x00"), timeout=5)
+                response = await asyncio.wait_for(
+                    reader.readuntil(b"\x00"), timeout=CONNECTION_TIMEOUT
+                )
             except (
                 asyncio.CancelledError,
                 ConnectionResetError,
@@ -138,7 +145,7 @@ class TriadConnection:
                 ):
                     _LOGGER.debug("Skipping unsolicited AudioSense event: %s", text)
                     response = await asyncio.wait_for(
-                        reader.readuntil(b"\x00"), timeout=5
+                        reader.readuntil(b"\x00"), timeout=CONNECTION_TIMEOUT
                     )
                     _LOGGER.debug("Raw response (post-AudioSense): %r", response)
                     text = response.decode(errors="replace").strip("\x00").strip()
