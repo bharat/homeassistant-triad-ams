@@ -1,5 +1,7 @@
 """Unit tests for TriadAmsMediaPlayer."""
 
+import asyncio
+from collections.abc import Coroutine
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -58,7 +60,16 @@ def mock_hass() -> MagicMock:
     hass = MagicMock(spec=HomeAssistant)
     hass.states = MagicMock()
     hass.states.get = MagicMock(return_value=None)
-    hass.async_create_task = MagicMock()
+
+    def async_create_task(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
+        """Mock async_create_task that schedules the coroutine to run."""
+        # In real Home Assistant, this schedules the task to run in the background.
+        # For tests, we schedule it using asyncio.create_task so it gets awaited.
+        return asyncio.create_task(coro)
+
+    # Wrap in MagicMock to track calls
+    mock_create_task = MagicMock(side_effect=async_create_task)
+    hass.async_create_task = mock_create_task
     return hass
 
 
