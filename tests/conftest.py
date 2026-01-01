@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -103,12 +103,7 @@ def coordinator_with_mock_connection(
     mock_connection: AsyncMock,
 ) -> Generator[TriadCoordinator]:
     """Create a real TriadCoordinator with a mocked connection."""
-    with patch(
-        "custom_components.triad_ams.coordinator.TriadConnection"
-    ) as mock_conn_class:
-        mock_conn_class.return_value = mock_connection
-        coordinator = TriadCoordinator("192.168.1.100", 52000, 8)
-        yield coordinator
+    return TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
 
 
 @pytest.fixture

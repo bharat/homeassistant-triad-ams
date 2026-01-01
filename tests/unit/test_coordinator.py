@@ -1,7 +1,7 @@
 """Unit tests for TriadCoordinator."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -33,13 +33,14 @@ def mock_connection() -> AsyncMock:
 @pytest.fixture
 def coordinator(mock_connection: AsyncMock) -> TriadCoordinator:
     """Create a TriadCoordinator with mocked connection."""
-    with patch(
-        "custom_components.triad_ams.coordinator.TriadConnection"
-    ) as mock_conn_class:
-        mock_conn_class.return_value = mock_connection
-        return TriadCoordinator(
-            "192.168.1.100", 52000, 8, min_send_interval=0.01, poll_interval=0.1
-        )
+    return TriadCoordinator(
+        "192.168.1.100",
+        52000,
+        8,
+        min_send_interval=0.01,
+        poll_interval=0.1,
+        connection=mock_connection,
+    )
 
 
 class TestTriadCoordinatorInitialization:
@@ -47,15 +48,11 @@ class TestTriadCoordinatorInitialization:
 
     def test_initialization(self, mock_connection: AsyncMock) -> None:
         """Test basic initialization."""
-        with patch(
-            "custom_components.triad_ams.coordinator.TriadConnection"
-        ) as mock_conn_class:
-            mock_conn_class.return_value = mock_connection
-            coord = TriadCoordinator("192.168.1.100", 52000, 8)
+        coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
 
-            assert coord._host == "192.168.1.100"
-            assert coord._port == 52000
-            assert coord.input_count == 8
+        assert coord._host == "192.168.1.100"
+        assert coord._port == 52000
+        assert coord.input_count == 8
 
     def test_input_count_property(self, coordinator: TriadCoordinator) -> None:
         """Test input_count property."""

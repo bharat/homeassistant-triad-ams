@@ -1,7 +1,6 @@
 """Entity lifecycle and cleanup tests."""
 
 import asyncio
-from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -200,37 +199,38 @@ class TestEntityCleanup:
         """Test cleanup of stale entities."""
         # Create mock entity registry
         registry = MagicMock(spec=er.EntityRegistry)
-        # Patch er.async_get to return our mock registry
-        with mock.patch(
-            "custom_components.triad_ams.media_player.er.async_get",
-            return_value=registry,
-        ):
-            # Create mock entities
-            entity1 = MagicMock()
-            entity1.platform = "triad_ams"
-            entity1.config_entry_id = "test_entry_123"
-            entity1.unique_id = "test_entry_123_output_1"
-            entity1.entity_id = "media_player.test_output_1"
+        # Create mock entities
+        entity1 = MagicMock()
+        entity1.platform = "triad_ams"
+        entity1.config_entry_id = "test_entry_123"
+        entity1.unique_id = "test_entry_123_output_1"
+        entity1.entity_id = "media_player.test_output_1"
 
-            entity2 = MagicMock()
-            entity2.platform = "triad_ams"
-            entity2.config_entry_id = "test_entry_123"
-            entity2.unique_id = "test_entry_123_output_99"  # Stale
-            entity2.entity_id = "media_player.test_output_99"
+        entity2 = MagicMock()
+        entity2.platform = "triad_ams"
+        entity2.config_entry_id = "test_entry_123"
+        entity2.unique_id = "test_entry_123_output_99"  # Stale
+        entity2.entity_id = "media_player.test_output_99"
 
-            registry.entities = {
-                "media_player.test_output_1": entity1,
-                "media_player.test_output_99": entity2,
-            }
+        registry.entities = {
+            "media_player.test_output_1": entity1,
+            "media_player.test_output_99": entity2,
+        }
 
-            # Create outputs (only output 1 is active)
-            outputs = [MagicMock()]
-            outputs[0].number = 1
+        # Create outputs (only output 1 is active)
+        outputs = [MagicMock()]
+        outputs[0].number = 1
 
-            _cleanup_stale_entities(mock_hass, mock_config_entry, outputs)
+        # Use registry injection instead of patching
+        _cleanup_stale_entities(
+            mock_hass,
+            mock_config_entry,
+            outputs,
+            entity_registry_getter=lambda _: registry,
+        )
 
-            # Should remove stale entity
-            registry.async_remove.assert_called_once_with("media_player.test_output_99")
+        # Should remove stale entity
+        registry.async_remove.assert_called_once_with("media_player.test_output_99")
 
     def test_remove_orphaned_devices(
         self, mock_hass: MagicMock, mock_config_entry: MagicMock
@@ -239,32 +239,24 @@ class TestEntityCleanup:
         # Create mock registries
         entity_registry = MagicMock(spec=er.EntityRegistry)
         device_registry = MagicMock(spec=dr.DeviceRegistry)
-        # Patch registry getters to return our mocks
-        with (
-            mock.patch(
-                "custom_components.triad_ams.media_player.er.async_get",
-                return_value=entity_registry,
-            ),
-            mock.patch(
-                "custom_components.triad_ams.media_player.dr.async_get",
-                return_value=device_registry,
-            ),
-            mock.patch(
-                "custom_components.triad_ams.media_player.er.async_entries_for_device",
-                return_value=[],
-            ),
-        ):
-            # Create mock device
-            device = MagicMock()
-            device.id = "device_123"
-            device.config_entries = {"test_entry_123"}
+        # Create mock device
+        device = MagicMock()
+        device.id = "device_123"
+        device.config_entries = {"test_entry_123"}
 
-            device_registry.devices = {"device_123": device}
+        device_registry.devices = {"device_123": device}
 
-            _remove_orphaned_devices(mock_hass, mock_config_entry)
+        # Use registry injection instead of patching
+        _remove_orphaned_devices(
+            mock_hass,
+            mock_config_entry,
+            entity_registry_getter=lambda _: entity_registry,
+            device_registry_getter=lambda _: device_registry,
+            entries_for_device_getter=lambda _registry, _device_id, **_: [],
+        )
 
-            # Should remove orphaned device
-            device_registry.async_remove_device.assert_called_once_with("device_123")
+        # Should remove orphaned device
+        device_registry.async_remove_device.assert_called_once_with("device_123")
 
     def test_remove_orphaned_devices_with_entities(
         self, mock_hass: MagicMock, mock_config_entry: MagicMock
@@ -273,32 +265,24 @@ class TestEntityCleanup:
         # Create mock registries
         entity_registry = MagicMock(spec=er.EntityRegistry)
         device_registry = MagicMock(spec=dr.DeviceRegistry)
-        # Patch registry getters to return our mocks
-        with (
-            mock.patch(
-                "custom_components.triad_ams.media_player.er.async_get",
-                return_value=entity_registry,
-            ),
-            mock.patch(
-                "custom_components.triad_ams.media_player.dr.async_get",
-                return_value=device_registry,
-            ),
-            mock.patch(
-                "custom_components.triad_ams.media_player.er.async_entries_for_device",
-                return_value=[MagicMock()],
-            ),
-        ):
-            # Create mock device
-            device = MagicMock()
-            device.id = "device_123"
-            device.config_entries = {"test_entry_123"}
+        # Create mock device
+        device = MagicMock()
+        device.id = "device_123"
+        device.config_entries = {"test_entry_123"}
 
-            device_registry.devices = {"device_123": device}
+        device_registry.devices = {"device_123": device}
 
-            _remove_orphaned_devices(mock_hass, mock_config_entry)
+        # Use registry injection instead of patching
+        _remove_orphaned_devices(
+            mock_hass,
+            mock_config_entry,
+            entity_registry_getter=lambda _: entity_registry,
+            device_registry_getter=lambda _: device_registry,
+            entries_for_device_getter=lambda _registry, _device_id, **_: [MagicMock()],
+        )
 
-            # Should not remove device with entities
-            device_registry.async_remove_device.assert_not_called()
+        # Should not remove device with entities
+        device_registry.async_remove_device.assert_not_called()
 
 
 class TestOptionsUpdate:

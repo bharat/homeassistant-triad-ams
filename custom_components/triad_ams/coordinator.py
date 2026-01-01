@@ -40,7 +40,7 @@ class _Command:
 class TriadCoordinator:
     """Single-queue, single-worker command coordinator."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         host: str,
         port: int,
@@ -48,12 +48,15 @@ class TriadCoordinator:
         *,
         min_send_interval: float = 0.15,
         poll_interval: float = 30.0,
+        connection: TriadConnection | None = None,
     ) -> None:
         """Initialize a paced, single-worker queue."""
         self._host = host
         self._port = port
         self._input_count = input_count
-        self._conn = TriadConnection(host, port)
+        self._conn = (
+            connection if connection is not None else TriadConnection(host, port)
+        )
         self._queue: asyncio.Queue[_Command] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._poll_task: asyncio.Task | None = None
