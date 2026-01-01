@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -15,6 +15,12 @@ from custom_components.triad_ams.models import TriadAmsOutput
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
+
+# Import pytest_socket at module level to avoid PLC0415
+try:
+    import pytest_socket
+except ImportError:
+    pytest_socket = None  # Optional dependency
 
 
 @pytest.fixture
@@ -103,12 +109,7 @@ def coordinator_with_mock_connection(
     mock_connection: AsyncMock,
 ) -> Generator[TriadCoordinator]:
     """Create a real TriadCoordinator with a mocked connection."""
-    with patch(
-        "custom_components.triad_ams.coordinator.TriadConnection"
-    ) as mock_conn_class:
-        mock_conn_class.return_value = mock_connection
-        coordinator = TriadCoordinator("192.168.1.100", 52000, 8)
-        yield coordinator
+    return TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
 
 
 @pytest.fixture
@@ -140,10 +141,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop]:
 def enable_sockets_for_integration_tests(request: pytest.FixtureRequest) -> None:
     """Enable socket usage for integration tests."""
     # Check if this is an integration test by looking at the test path
-    if "integration" in str(request.node.fspath):
-        # Import here to avoid circular imports
-        import pytest_socket  # noqa: PLC0415
-
+    if "integration" in str(request.node.fspath) and pytest_socket is not None:
         pytest_socket.enable_socket()
 
 

@@ -1,7 +1,7 @@
 """Unit tests for TriadCoordinator."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -10,36 +10,16 @@ from custom_components.triad_ams.models import TriadAmsOutput
 
 
 @pytest.fixture
-def mock_connection() -> AsyncMock:
-    """Create a mock TriadConnection."""
-    conn = AsyncMock()
-    # Set synchronous method first to prevent AsyncMock from auto-creating it
-    conn.close_nowait = MagicMock()
-    conn.connect = AsyncMock()
-    conn.disconnect = AsyncMock()
-    conn.set_output_volume = AsyncMock()
-    conn.get_output_volume = AsyncMock(return_value=0.5)
-    conn.set_output_mute = AsyncMock()
-    conn.get_output_mute = AsyncMock(return_value=False)
-    conn.volume_step_up = AsyncMock()
-    conn.volume_step_down = AsyncMock()
-    conn.set_output_to_input = AsyncMock()
-    conn.get_output_source = AsyncMock(return_value=1)
-    conn.disconnect_output = AsyncMock()
-    conn.set_trigger_zone = AsyncMock()
-    return conn
-
-
-@pytest.fixture
 def coordinator(mock_connection: AsyncMock) -> TriadCoordinator:
     """Create a TriadCoordinator with mocked connection."""
-    with patch(
-        "custom_components.triad_ams.coordinator.TriadConnection"
-    ) as mock_conn_class:
-        mock_conn_class.return_value = mock_connection
-        return TriadCoordinator(
-            "192.168.1.100", 52000, 8, min_send_interval=0.01, poll_interval=0.1
-        )
+    return TriadCoordinator(
+        "192.168.1.100",
+        52000,
+        8,
+        min_send_interval=0.01,
+        poll_interval=0.1,
+        connection=mock_connection,
+    )
 
 
 class TestTriadCoordinatorInitialization:
@@ -47,15 +27,11 @@ class TestTriadCoordinatorInitialization:
 
     def test_initialization(self, mock_connection: AsyncMock) -> None:
         """Test basic initialization."""
-        with patch(
-            "custom_components.triad_ams.coordinator.TriadConnection"
-        ) as mock_conn_class:
-            mock_conn_class.return_value = mock_connection
-            coord = TriadCoordinator("192.168.1.100", 52000, 8)
+        coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
 
-            assert coord._host == "192.168.1.100"
-            assert coord._port == 52000
-            assert coord.input_count == 8
+        assert coord._host == "192.168.1.100"
+        assert coord._port == 52000
+        assert coord.input_count == 8
 
     def test_input_count_property(self, coordinator: TriadCoordinator) -> None:
         """Test input_count property."""
@@ -131,8 +107,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_volume(1, 0.75)
 
-        # Wait a bit for command to process
-        await asyncio.sleep(0.1)
         mock_connection.set_output_volume.assert_called_once_with(1, 0.75)
         await coordinator.stop()
 
@@ -156,7 +130,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_mute(1, mute=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_output_mute.assert_called_once_with(1, mute=True)
         await coordinator.stop()
 
@@ -168,7 +141,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.volume_step_up(1, large=False)
 
-        await asyncio.sleep(0.1)
         mock_connection.volume_step_up.assert_called_once_with(1, large=False)
         await coordinator.stop()
 
@@ -180,7 +152,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.volume_step_down(1, large=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.volume_step_down.assert_called_once_with(1, large=True)
         await coordinator.stop()
 
@@ -192,7 +163,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_output_to_input(1, 2)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_output_to_input.assert_called_once_with(1, 2)
         mock_connection.set_trigger_zone.assert_called_once_with(zone=1, on=True)
         await coordinator.stop()
@@ -217,11 +187,9 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         # First set a source to make zone active
         await coordinator.set_output_to_input(1, 2)
-        await asyncio.sleep(0.1)
 
         # Now disconnect
         await coordinator.disconnect_output(1)
-        await asyncio.sleep(0.1)
 
         mock_connection.disconnect_output.assert_called_once_with(1, 8)
         # Should turn off trigger zone when zone becomes empty
@@ -236,7 +204,6 @@ class TestTriadCoordinatorCommandExecution:
         await coordinator.start()
         await coordinator.set_trigger_zone(zone=1, on=True)
 
-        await asyncio.sleep(0.1)
         mock_connection.set_trigger_zone.assert_called_once_with(zone=1, on=True)
         await coordinator.stop()
 
@@ -248,7 +215,7 @@ class TestTriadCoordinatorPacing:
     async def test_pacing_enforcement(
         self,
         coordinator: TriadCoordinator,
-        mock_connection: AsyncMock,  # noqa: ARG002
+        mock_connection: AsyncMock,
     ) -> None:
         """Test that commands are paced."""
         coordinator._min_send_interval = 0.1
@@ -257,7 +224,7 @@ class TestTriadCoordinatorPacing:
         start_time = asyncio.get_running_loop().time()
         await coordinator.set_output_volume(1, 0.5)
         await coordinator.set_output_volume(1, 0.6)
-        await asyncio.sleep(0.2)  # Wait for both commands
+        await asyncio.sleep(0.12)  # Wait for both commands
 
         elapsed = asyncio.get_running_loop().time() - start_time
         # Should take at least min_send_interval between commands
@@ -272,7 +239,6 @@ class TestTriadCoordinatorPacing:
         await coordinator.start()
         await coordinator.set_output_volume(1, 0.5)
 
-        await asyncio.sleep(0.1)
         mock_connection.connect.assert_called()
         await coordinator.stop()
 
@@ -373,7 +339,8 @@ class TestTriadCoordinatorPolling:
 
         coordinator._poll_interval = 0.05
         await coordinator.start()
-        await asyncio.sleep(0.15)  # Allow a few poll cycles
+        # Wait for at least 2 poll cycles to ensure both outputs are polled
+        await asyncio.sleep(0.07)
 
         # Both should have been polled
         assert output1.refresh_and_notify.call_count >= 1
@@ -392,7 +359,8 @@ class TestTriadCoordinatorPolling:
         coordinator.register_output(output)
         coordinator._poll_interval = 0.05
         await coordinator.start()
-        await asyncio.sleep(0.1)
+        # Wait for at least one poll cycle
+        await asyncio.sleep(0.06)
 
         # Should continue polling despite errors
         assert output.refresh_and_notify.call_count >= 1
@@ -424,7 +392,6 @@ class TestTriadCoordinatorZoneManagement:
         await coordinator.start()
         await coordinator.set_output_to_input(1, 2)
 
-        await asyncio.sleep(0.1)
         # Should turn on zone 1
         mock_connection.set_trigger_zone.assert_called_with(zone=1, on=True)
         await coordinator.stop()
@@ -437,11 +404,9 @@ class TestTriadCoordinatorZoneManagement:
         await coordinator.start()
         # Route output 1 (zone 1)
         await coordinator.set_output_to_input(1, 2)
-        await asyncio.sleep(0.1)
 
         # Disconnect it
         await coordinator.disconnect_output(1)
-        await asyncio.sleep(0.1)
 
         # Should turn off zone 1
         assert any(

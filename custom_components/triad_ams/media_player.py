@@ -142,10 +142,14 @@ def _cleanup_stale_entities(
     hass: HomeAssistant,
     entry: ConfigEntry,
     outputs: list[TriadAmsOutput],
+    *,
+    entity_registry_getter: Any = None,
 ) -> None:
     """Remove stale entities for outputs that are no longer active."""
+    if entity_registry_getter is None:
+        entity_registry_getter = er.async_get
     allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
-    registry = er.async_get(hass)
+    registry = entity_registry_getter(hass)
     for ent in list(registry.entities.values()):
         if (
             ent.platform == DOMAIN
@@ -158,14 +162,24 @@ def _cleanup_stale_entities(
 def _remove_orphaned_devices(
     hass: HomeAssistant,
     entry: ConfigEntry,
+    *,
+    entity_registry_getter: Any = None,
+    device_registry_getter: Any = None,
+    entries_for_device_getter: Any = None,
 ) -> None:
     """Remove orphaned devices (those without any entities for this entry)."""
-    registry = er.async_get(hass)
-    dev_reg = dr.async_get(hass)
+    if entity_registry_getter is None:
+        entity_registry_getter = er.async_get
+    if device_registry_getter is None:
+        device_registry_getter = dr.async_get
+    if entries_for_device_getter is None:
+        entries_for_device_getter = er.async_entries_for_device
+    registry = entity_registry_getter(hass)
+    dev_reg = device_registry_getter(hass)
     for device in list(dev_reg.devices.values()):
         if entry.entry_id not in device.config_entries:
             continue
-        if not er.async_entries_for_device(
+        if not entries_for_device_getter(
             registry, device.id, include_disabled_entities=True
         ):
             dev_reg.async_remove_device(device.id)

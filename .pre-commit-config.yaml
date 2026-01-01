@@ -18,11 +18,11 @@ repos:
 
   - repo: local
     hooks:
-      - id: pytest-unit
-        name: pytest unit tests
+      - id: pytest
+        name: pytest
         entry: pytest
         language: system
         types: [python]
-        args: ["tests/unit/", "-v", "--tb=short"]
+        args: ["tests/", "-v", "--tb=short", "--cov=custom_components.triad_ams"]
         pass_filenames: false
         always_run: true

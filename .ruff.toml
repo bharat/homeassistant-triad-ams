@@ -30,4 +30,5 @@ max-complexity = 25
     "S101",   # Use of `assert` detected (assert is normal in tests)
     "PLR2004", # Magic value used in comparison (magic values are normal in tests)
     "SLF001", # Private member accessed (accessing private members is normal in tests)
+    "ARG002", # Unused method argument (pytest fixtures are dependency-injected)
 ]

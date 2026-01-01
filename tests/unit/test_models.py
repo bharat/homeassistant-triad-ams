@@ -134,7 +134,7 @@ class TestTriadAmsOutputVolume:
     async def test_set_volume_zero_becomes_minimum(
         self,
         output: TriadAmsOutput,
-        mock_coordinator: MagicMock,  # noqa: ARG002
+        mock_coordinator: MagicMock,
     ) -> None:
         """Test that volume 0 becomes minimum step."""
         await output.set_volume(0.0)
@@ -321,7 +321,7 @@ class TestTriadAmsOutputRefresh:
     async def test_refresh_and_notify(
         self,
         output: TriadAmsOutput,
-        mock_coordinator: MagicMock,  # noqa: ARG002
+        mock_coordinator: MagicMock,
     ) -> None:
         """Test refresh_and_notify calls listeners."""
         listener_called = False
