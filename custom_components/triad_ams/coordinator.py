@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from .models import TriadAmsOutput
 
 from .connection import TriadConnection
-from .const import CONNECTION_TIMEOUT, SHUTDOWN_TIMEOUT
+from .const import CONNECTION_TIMEOUT, NETWORK_EXCEPTIONS, SHUTDOWN_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,12 +132,7 @@ class TriadCoordinator:
                 self._last_send_time = asyncio.get_running_loop().time()
                 if not cmd.future.done():
                     cmd.future.set_result(result)
-            except (
-                OSError,
-                TimeoutError,
-                asyncio.IncompleteReadError,
-                asyncio.CancelledError,
-            ) as exc:
+            except NETWORK_EXCEPTIONS as exc:
                 # Log, drop transport, attempt quick reconnect, and propagate error.
                 _LOGGER.warning(
                     "Command failed; dropping and reopening connection: %s", exc
