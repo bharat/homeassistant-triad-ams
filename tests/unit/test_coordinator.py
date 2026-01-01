@@ -10,27 +10,6 @@ from custom_components.triad_ams.models import TriadAmsOutput
 
 
 @pytest.fixture
-def mock_connection() -> AsyncMock:
-    """Create a mock TriadConnection."""
-    conn = AsyncMock()
-    # Set synchronous method first to prevent AsyncMock from auto-creating it
-    conn.close_nowait = MagicMock()
-    conn.connect = AsyncMock()
-    conn.disconnect = AsyncMock()
-    conn.set_output_volume = AsyncMock()
-    conn.get_output_volume = AsyncMock(return_value=0.5)
-    conn.set_output_mute = AsyncMock()
-    conn.get_output_mute = AsyncMock(return_value=False)
-    conn.volume_step_up = AsyncMock()
-    conn.volume_step_down = AsyncMock()
-    conn.set_output_to_input = AsyncMock()
-    conn.get_output_source = AsyncMock(return_value=1)
-    conn.disconnect_output = AsyncMock()
-    conn.set_trigger_zone = AsyncMock()
-    return conn
-
-
-@pytest.fixture
 def coordinator(mock_connection: AsyncMock) -> TriadCoordinator:
     """Create a TriadCoordinator with mocked connection."""
     return TriadCoordinator(
