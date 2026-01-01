@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -21,6 +21,56 @@ try:
     import pytest_socket
 except ImportError:
     pytest_socket = None  # Optional dependency
+
+
+def create_async_mock_method(
+    return_value: Any = None, side_effect: Any = None
+) -> MagicMock:
+    """
+    Create a MagicMock with an async function.
+
+    This avoids AsyncMock's issue of creating coroutines on attribute access.
+    Coroutines are only created when the method is actually called.
+    """
+    # Store values in a mutable dict that can be updated
+    state: dict[str, Any] = {"return_value": return_value, "side_effect": side_effect}
+
+    async def async_method(*args: Any, **kwargs: Any) -> Any:
+        # Check for side_effect first
+        if state["side_effect"] is not None:
+            se = state["side_effect"]
+            if callable(se) and not isinstance(se, type):
+                return se(*args, **kwargs)
+            if not callable(se):
+                raise se
+        # Return the return_value
+        return state["return_value"]
+
+    mock = MagicMock(side_effect=async_method)
+    # Store state on the mock so we can update it
+    mock._async_mock_state = state
+
+    # Override return_value and side_effect properties
+    def _get_return_value(mock_self: MagicMock) -> Any:
+        return mock_self._async_mock_state["return_value"]
+
+    def _set_return_value(mock_self: MagicMock, value: Any) -> None:
+        mock_self._async_mock_state["return_value"] = value
+
+    def _get_side_effect(_mock_self: MagicMock) -> Any:
+        # Always return the async_method wrapper to avoid creating coroutines
+        return async_method
+
+    def _set_side_effect(mock_self: MagicMock, value: Any) -> None:
+        mock_self._async_mock_state["side_effect"] = value
+        # Keep the async wrapper
+        MagicMock.side_effect.fset(mock_self, async_method)
+
+    # Use property descriptor
+    type(mock).return_value = property(_get_return_value, _set_return_value)
+    type(mock).side_effect = property(_get_side_effect, _set_side_effect)
+
+    return mock
 
 
 @pytest.fixture
@@ -56,57 +106,57 @@ def mock_config_entry() -> MagicMock:
 
 
 @pytest.fixture
-def mock_connection() -> AsyncMock:
+def mock_connection() -> MagicMock:
     """Create a mock TriadConnection."""
-    # Use configure_mock to set synchronous methods before async ones
-    conn = AsyncMock()
-    # Set synchronous method first to prevent AsyncMock from auto-creating it
-    close_nowait_mock = MagicMock()
-    conn.close_nowait = close_nowait_mock
-    # Now set other attributes
+    conn = MagicMock()
+    # Set synchronous attributes
     conn.host = "192.168.1.100"
     conn.port = 52000
-    conn.connect = AsyncMock()
-    conn.disconnect = AsyncMock()
-    conn.set_output_volume = AsyncMock()
-    conn.get_output_volume = AsyncMock(return_value=0.5)
-    conn.set_output_mute = AsyncMock()
-    conn.get_output_mute = AsyncMock(return_value=False)
-    conn.volume_step_up = AsyncMock()
-    conn.volume_step_down = AsyncMock()
-    conn.set_output_to_input = AsyncMock()
-    conn.get_output_source = AsyncMock(return_value=1)
-    conn.disconnect_output = AsyncMock()
-    conn.set_trigger_zone = AsyncMock()
+    conn.close_nowait = MagicMock()
+
+    # Set async methods using explicit coroutines
+    conn.connect = create_async_mock_method()
+    conn.disconnect = create_async_mock_method()
+    conn.set_output_volume = create_async_mock_method()
+    conn.get_output_volume = create_async_mock_method(return_value=0.5)
+    conn.set_output_mute = create_async_mock_method()
+    conn.get_output_mute = create_async_mock_method(return_value=False)
+    conn.volume_step_up = create_async_mock_method()
+    conn.volume_step_down = create_async_mock_method()
+    conn.set_output_to_input = create_async_mock_method()
+    conn.get_output_source = create_async_mock_method(return_value=1)
+    conn.disconnect_output = create_async_mock_method()
+    conn.set_trigger_zone = create_async_mock_method()
+
     return conn
 
 
 @pytest.fixture
-def mock_coordinator(mock_connection: AsyncMock) -> MagicMock:
+def mock_coordinator(mock_connection: MagicMock) -> MagicMock:
     """Create a mock TriadCoordinator."""
     coordinator = MagicMock(spec=TriadCoordinator)
     coordinator._conn = mock_connection
     coordinator.input_count = 8
-    coordinator.start = AsyncMock()
-    coordinator.stop = AsyncMock()
-    coordinator.disconnect = AsyncMock()
-    coordinator.set_output_volume = AsyncMock()
-    coordinator.get_output_volume = AsyncMock(return_value=0.5)
-    coordinator.set_output_mute = AsyncMock()
-    coordinator.get_output_mute = AsyncMock(return_value=False)
-    coordinator.volume_step_up = AsyncMock()
-    coordinator.volume_step_down = AsyncMock()
-    coordinator.set_output_to_input = AsyncMock()
-    coordinator.get_output_source = AsyncMock(return_value=1)
-    coordinator.disconnect_output = AsyncMock()
-    coordinator.set_trigger_zone = AsyncMock()
+    coordinator.start = create_async_mock_method()
+    coordinator.stop = create_async_mock_method()
+    coordinator.disconnect = create_async_mock_method()
+    coordinator.set_output_volume = create_async_mock_method()
+    coordinator.get_output_volume = create_async_mock_method(return_value=0.5)
+    coordinator.set_output_mute = create_async_mock_method()
+    coordinator.get_output_mute = create_async_mock_method(return_value=False)
+    coordinator.volume_step_up = create_async_mock_method()
+    coordinator.volume_step_down = create_async_mock_method()
+    coordinator.set_output_to_input = create_async_mock_method()
+    coordinator.get_output_source = create_async_mock_method(return_value=1)
+    coordinator.disconnect_output = create_async_mock_method()
+    coordinator.set_trigger_zone = create_async_mock_method()
     coordinator.register_output = MagicMock()
     return coordinator
 
 
 @pytest.fixture
 def coordinator_with_mock_connection(
-    mock_connection: AsyncMock,
+    mock_connection: MagicMock,
 ) -> Generator[TriadCoordinator]:
     """Create a real TriadCoordinator with a mocked connection."""
     return TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)

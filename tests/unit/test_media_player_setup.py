@@ -1,6 +1,7 @@
 """Unit tests for media_player setup and utility functions."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -19,6 +20,7 @@ from custom_components.triad_ams.media_player import (
     async_setup_entry,
 )
 from custom_components.triad_ams.models import TriadAmsOutput
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
@@ -51,7 +53,7 @@ def mock_config_entry() -> MagicMock:
 def mock_coordinator() -> MagicMock:
     """Create a mock coordinator."""
     coordinator = MagicMock()
-    coordinator.start = AsyncMock()
+    coordinator.start = create_async_mock_method()
     coordinator.register_output = MagicMock()
     return coordinator
 
@@ -79,11 +81,15 @@ class TestBuildInputNames:
         active_inputs = [1, 2]
         input_links_opt = {"1": "media_player.input1"}
 
-        mock_state = MagicMock()
-        mock_state.name = "Custom Input Name"
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock to avoid AsyncMock issues
+        state = type("State", (), {"name": "Custom Input Name"})()
 
-        result = _build_input_names(mock_hass, active_inputs, input_links_opt)
+        def state_getter(_hass: HomeAssistant, entity_id: str) -> Any:
+            return state if entity_id == "media_player.input1" else None
+
+        result = _build_input_names(
+            mock_hass, active_inputs, input_links_opt, state_getter=state_getter
+        )
 
         assert result[1] == "Custom Input Name"
         assert result[2] == "Input 2"
@@ -95,9 +101,12 @@ class TestBuildInputNames:
         active_inputs = [1, 2]
         input_links_opt = {"1": "media_player.input1"}
 
-        mock_hass.states.get = MagicMock(return_value=None)
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> None:
+            return None
 
-        result = _build_input_names(mock_hass, active_inputs, input_links_opt)
+        result = _build_input_names(
+            mock_hass, active_inputs, input_links_opt, state_getter=state_getter
+        )
 
         assert result[1] == "Input 1"
         assert result[2] == "Input 2"
@@ -113,12 +122,19 @@ class TestUpdateInputNameFromState:
         for entity in entities:
             entity.async_write_ha_state = MagicMock()
 
-        mock_state = MagicMock()
-        mock_state.name = "New Input Name"
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"name": "New Input Name"})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         _update_input_name_from_state(
-            mock_hass, 1, "media_player.input1", input_names, entities
+            mock_hass,
+            1,
+            "media_player.input1",
+            input_names,
+            entities,
+            state_getter=state_getter,
         )
 
         assert input_names[1] == "New Input Name"
@@ -131,12 +147,19 @@ class TestUpdateInputNameFromState:
         entities = [MagicMock()]
         entities[0].async_write_ha_state = MagicMock()
 
-        mock_state = MagicMock()
-        mock_state.name = "Input 1"  # Same name
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object with same name
+        state = type("State", (), {"name": "Input 1"})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         _update_input_name_from_state(
-            mock_hass, 1, "media_player.input1", input_names, entities
+            mock_hass,
+            1,
+            "media_player.input1",
+            input_names,
+            entities,
+            state_getter=state_getter,
         )
 
         # Should not call async_write_ha_state
@@ -148,10 +171,16 @@ class TestUpdateInputNameFromState:
         entities = [MagicMock()]
         entities[0].async_write_ha_state = MagicMock()
 
-        mock_hass.states.get = MagicMock(return_value=None)
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> None:
+            return None
 
         _update_input_name_from_state(
-            mock_hass, 1, "media_player.input1", input_names, entities
+            mock_hass,
+            1,
+            "media_player.input1",
+            input_names,
+            entities,
+            state_getter=state_getter,
         )
 
         # Should not change name or call async_write_ha_state
@@ -170,16 +199,23 @@ class TestCreateInputLinkHandler:
         entities = [MagicMock()]
         entities[0].async_write_ha_state = MagicMock()
 
+        # Simple state object - no MagicMock
+        state = type("State", (), {"name": "Updated Name"})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
+
         handler = _create_input_link_handler(
-            mock_hass, input_links_opt, active_inputs, input_names, entities
+            mock_hass,
+            input_links_opt,
+            active_inputs,
+            input_names,
+            entities,
+            state_getter=state_getter,
         )
 
         mock_event = MagicMock()
         mock_event.data = {"entity_id": "media_player.input1"}
-
-        mock_state = MagicMock()
-        mock_state.name = "Updated Name"
-        mock_hass.states.get = MagicMock(return_value=mock_state)
 
         handler(mock_event)
 
@@ -325,9 +361,11 @@ class TestSetupInputLinkSubscriptions:
         entities = [MagicMock()]
         entities[0].async_write_ha_state = MagicMock()
 
-        mock_state = MagicMock()
-        mock_state.name = "Custom Name"
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"name": "Custom Name"})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         mock_unsub = MagicMock()
         with patch(
@@ -341,6 +379,7 @@ class TestSetupInputLinkSubscriptions:
                 active_inputs,
                 input_names,
                 entities,
+                state_getter=state_getter,
             )
 
             # Should update the name
@@ -638,10 +677,6 @@ class TestAsyncSetupEntry:
             "active_outputs": [1],
             "input_links": {"1": "media_player.input1"},
         }
-
-        mock_state = MagicMock()
-        mock_state.name = "Custom Input"
-        mock_hass.states.get = MagicMock(return_value=mock_state)
 
         mock_registry = MagicMock(spec=er.EntityRegistry)
         mock_registry.entities = {}

@@ -1,18 +1,20 @@
 """Unit tests for TriadConnection."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from custom_components.triad_ams.connection import TriadConnection
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
 def mock_stream_reader() -> MagicMock:
     """Create a mock StreamReader."""
     reader = MagicMock()
-    reader.readuntil = AsyncMock(return_value=b"Response\x00")
+    reader.readuntil = create_async_mock_method(return_value=b"Response\x00")
     return reader
 
 
@@ -21,9 +23,9 @@ def mock_stream_writer() -> MagicMock:
     """Create a mock StreamWriter."""
     writer = MagicMock()
     writer.write = MagicMock()
-    writer.drain = AsyncMock()
+    writer.drain = create_async_mock_method()
     writer.close = MagicMock()
-    writer.wait_closed = AsyncMock()
+    writer.wait_closed = create_async_mock_method()
     return writer
 
 
@@ -61,8 +63,13 @@ class TestTriadConnectionConnect:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test connecting to device."""
-        with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
-            mock_open.return_value = (mock_stream_reader, mock_stream_writer)
+
+        async def mock_open_connection(*_args: Any, **_kwargs: Any) -> tuple:
+            return (mock_stream_reader, mock_stream_writer)
+
+        with patch(
+            "asyncio.open_connection", side_effect=mock_open_connection
+        ) as mock_open:
             await connection.connect()
 
             mock_open.assert_called_once_with("192.168.1.100", 52000)
@@ -80,7 +87,12 @@ class TestTriadConnectionConnect:
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
-        with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        async def mock_open_connection(*_args: Any, **_kwargs: Any) -> tuple:
+            return (mock_stream_reader, mock_stream_writer)
+
+        with patch(
+            "asyncio.open_connection", side_effect=mock_open_connection
+        ) as mock_open:
             await connection.connect()
             # Should not call open_connection again
             mock_open.assert_not_called()
@@ -132,7 +144,7 @@ class TestTriadConnectionSendCommand:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test successful command send."""
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Output Volume : 0x32\x00"
         )
         connection._reader = mock_stream_reader
@@ -154,9 +166,16 @@ class TestTriadConnectionSendCommand:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test that send_command auto-connects if needed."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Response\x00")
-        with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
-            mock_open.return_value = (mock_stream_reader, mock_stream_writer)
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Response\x00"
+        )
+
+        async def mock_open_connection(*_args: Any, **_kwargs: Any) -> tuple:
+            return (mock_stream_reader, mock_stream_writer)
+
+        with patch(
+            "asyncio.open_connection", side_effect=mock_open_connection
+        ) as mock_open:
             await connection._send_command(b"\xff\x55")
 
             mock_open.assert_called_once()
@@ -170,11 +189,16 @@ class TestTriadConnectionSendCommand:
     ) -> None:
         """Test handling of unsolicited AudioSense events."""
         # First response is AudioSense, second is actual response
-        mock_stream_reader.readuntil = AsyncMock(
-            side_effect=[
-                b"AudioSense:Input[1] : 1\x00",
-                b"Output Volume : 0x32\x00",
-            ]
+        responses = [
+            b"AudioSense:Input[1] : 1\x00",
+            b"Output Volume : 0x32\x00",
+        ]
+
+        def readuntil_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            return responses.pop(0) if responses else b"Done\x00"
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            side_effect=readuntil_side_effect
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
@@ -192,7 +216,9 @@ class TestTriadConnectionSendCommand:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test handling of error response."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"command error\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"command error\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -207,7 +233,7 @@ class TestTriadConnectionSendCommand:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test handling of empty response."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(return_value=b"\x00")
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -222,7 +248,9 @@ class TestTriadConnectionSendCommand:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test handling of timeout."""
-        mock_stream_reader.readuntil = AsyncMock(side_effect=TimeoutError())
+        mock_stream_reader.readuntil = create_async_mock_method(
+            side_effect=TimeoutError()
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -241,7 +269,7 @@ class TestTriadConnectionVolume:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test setting output volume."""
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Output Volume : 0x32\x00"
         )
         connection._reader = mock_stream_reader
@@ -264,7 +292,7 @@ class TestTriadConnectionVolume:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test volume clamping."""
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Output Volume : 0x64\x00"
         )
         connection._reader = mock_stream_reader
@@ -282,7 +310,9 @@ class TestTriadConnectionVolume:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test getting volume with hex response."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Volume : 0x32\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Volume : 0x32\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -298,7 +328,9 @@ class TestTriadConnectionVolume:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test getting volume with dB response."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Volume : -25.1\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Volume : -25.1\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -315,7 +347,9 @@ class TestTriadConnectionVolume:
     ) -> None:
         """Test getting volume with unparseable response."""
         # Response that doesn't match expected pattern causes OSError
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Invalid response\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Invalid response\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -335,7 +369,9 @@ class TestTriadConnectionMute:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test setting mute on."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Response\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Response\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -352,7 +388,9 @@ class TestTriadConnectionMute:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test setting mute off."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Response\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Response\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -375,7 +413,9 @@ class TestTriadConnectionMute:
             b"Muted\x00",
         ]
         for response in responses:
-            mock_stream_reader.readuntil = AsyncMock(return_value=response)
+            mock_stream_reader.readuntil = create_async_mock_method(
+                return_value=response
+            )
             connection._reader = mock_stream_reader
             connection._writer = mock_stream_writer
 
@@ -396,7 +436,9 @@ class TestTriadConnectionMute:
             b"Unmuted\x00",
         ]
         for response in responses:
-            mock_stream_reader.readuntil = AsyncMock(return_value=response)
+            mock_stream_reader.readuntil = create_async_mock_method(
+                return_value=response
+            )
             connection._reader = mock_stream_reader
             connection._writer = mock_stream_writer
 
@@ -415,7 +457,7 @@ class TestTriadConnectionSource:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test routing output to input."""
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Set output 1 to input 2\x00"
         )
         connection._reader = mock_stream_reader
@@ -436,7 +478,7 @@ class TestTriadConnectionSource:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test getting output source."""
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Input Source : input 2\x00"
         )
         connection._reader = mock_stream_reader
@@ -454,7 +496,9 @@ class TestTriadConnectionSource:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test getting output source when audio is off."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Audio Off\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Audio Off\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -471,7 +515,7 @@ class TestTriadConnectionSource:
     ) -> None:
         """Test disconnecting output."""
         # Response needs to match expected pattern
-        mock_stream_reader.readuntil = AsyncMock(
+        mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"Set output 1 to input 9\x00"
         )
         connection._reader = mock_stream_reader
@@ -496,7 +540,9 @@ class TestTriadConnectionVolumeSteps:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test small volume step up."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Input Source\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Input Source\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -513,7 +559,9 @@ class TestTriadConnectionVolumeSteps:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test large volume step up."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Input Source\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Input Source\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -530,7 +578,9 @@ class TestTriadConnectionVolumeSteps:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test small volume step down."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Input Source\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Input Source\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -547,7 +597,9 @@ class TestTriadConnectionVolumeSteps:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test large volume step down."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Input Source\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Input Source\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -568,7 +620,9 @@ class TestTriadConnectionTriggerZone:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test setting trigger zone on."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Max Volume\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Max Volume\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -586,7 +640,9 @@ class TestTriadConnectionTriggerZone:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test setting trigger zone off."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Max Volume\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Max Volume\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
@@ -604,7 +660,9 @@ class TestTriadConnectionTriggerZone:
         mock_stream_writer: MagicMock,
     ) -> None:
         """Test zone number clamping."""
-        mock_stream_reader.readuntil = AsyncMock(return_value=b"Max Volume\x00")
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Max Volume\x00"
+        )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 

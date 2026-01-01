@@ -1,16 +1,17 @@
 """Unit tests for TriadCoordinator."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.triad_ams.coordinator import TriadCoordinator
 from custom_components.triad_ams.models import TriadAmsOutput
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
-def coordinator(mock_connection: AsyncMock) -> TriadCoordinator:
+def coordinator(mock_connection: MagicMock) -> TriadCoordinator:
     """Create a TriadCoordinator with mocked connection."""
     return TriadCoordinator(
         "192.168.1.100",
@@ -25,7 +26,7 @@ def coordinator(mock_connection: AsyncMock) -> TriadCoordinator:
 class TestTriadCoordinatorInitialization:
     """Test TriadCoordinator initialization."""
 
-    def test_initialization(self, mock_connection: AsyncMock) -> None:
+    def test_initialization(self, mock_connection: MagicMock) -> None:
         """Test basic initialization."""
         coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
 
@@ -79,7 +80,7 @@ class TestTriadCoordinatorLifecycle:
         # Add a command to queue
         future = asyncio.get_running_loop().create_future()
         await coordinator._queue.put(
-            type("_Command", (), {"op": AsyncMock(), "future": future})()
+            type("_Command", (), {"op": create_async_mock_method(), "future": future})()
         )
 
         await coordinator.stop()
@@ -89,7 +90,7 @@ class TestTriadCoordinatorLifecycle:
 
     @pytest.mark.asyncio
     async def test_disconnect(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test disconnecting."""
         await coordinator.disconnect()
@@ -101,7 +102,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_set_output_volume(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test setting output volume."""
         await coordinator.start()
@@ -112,7 +113,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_get_output_volume(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test getting output volume."""
         await coordinator.start()
@@ -124,7 +125,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_set_output_mute(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test setting mute."""
         await coordinator.start()
@@ -135,7 +136,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_volume_step_up(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test volume step up."""
         await coordinator.start()
@@ -146,7 +147,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_volume_step_down(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test volume step down."""
         await coordinator.start()
@@ -157,7 +158,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_set_output_to_input(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test routing output to input."""
         await coordinator.start()
@@ -169,7 +170,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_get_output_source(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test getting output source."""
         await coordinator.start()
@@ -181,7 +182,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_disconnect_output(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test disconnecting output."""
         await coordinator.start()
@@ -198,7 +199,7 @@ class TestTriadCoordinatorCommandExecution:
 
     @pytest.mark.asyncio
     async def test_set_trigger_zone(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test setting trigger zone."""
         await coordinator.start()
@@ -215,7 +216,7 @@ class TestTriadCoordinatorPacing:
     async def test_pacing_enforcement(
         self,
         coordinator: TriadCoordinator,
-        mock_connection: AsyncMock,
+        mock_connection: MagicMock,
     ) -> None:
         """Test that commands are paced."""
         coordinator._min_send_interval = 0.1
@@ -233,7 +234,7 @@ class TestTriadCoordinatorPacing:
 
     @pytest.mark.asyncio
     async def test_connection_auto_connect(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that connection is established before commands."""
         await coordinator.start()
@@ -248,7 +249,7 @@ class TestTriadCoordinatorErrorHandling:
 
     @pytest.mark.asyncio
     async def test_oserror_propagates(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that OSError is propagated to caller."""
         mock_connection.get_output_volume.side_effect = OSError("Connection failed")
@@ -261,7 +262,7 @@ class TestTriadCoordinatorErrorHandling:
 
     @pytest.mark.asyncio
     async def test_timeout_propagates(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that TimeoutError is propagated."""
         mock_connection.get_output_volume.side_effect = TimeoutError()
@@ -274,7 +275,7 @@ class TestTriadCoordinatorErrorHandling:
 
     @pytest.mark.asyncio
     async def test_reconnection_on_error(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that connection is re-established after error."""
         # First call fails, second succeeds
@@ -288,9 +289,11 @@ class TestTriadCoordinatorErrorHandling:
                 raise OSError(error_msg)
             return 0.5
 
-        mock_connection.get_output_volume = AsyncMock(side_effect=volume_side_effect)
-        mock_connection.connect = AsyncMock(return_value=None)
-        # close_nowait is not async - ensure it's a regular MagicMock (not AsyncMock)
+        mock_connection.get_output_volume = create_async_mock_method(
+            side_effect=volume_side_effect
+        )
+        mock_connection.connect = create_async_mock_method()
+        # close_nowait is not async - ensure it's a regular MagicMock
         mock_connection.close_nowait = MagicMock()
         await coordinator.start()
 
@@ -300,7 +303,7 @@ class TestTriadCoordinatorErrorHandling:
             await coordinator.get_output_volume(1)
 
         # Next call should succeed after reconnection
-        mock_connection.get_output_volume = AsyncMock(return_value=0.5)
+        mock_connection.get_output_volume = create_async_mock_method(return_value=0.5)
         volume = await coordinator.get_output_volume(1)
         assert volume == 0.5
 
@@ -316,7 +319,7 @@ class TestTriadCoordinatorPolling:
         output = MagicMock(spec=TriadAmsOutput)
         output.number = 1
         output.has_source = True
-        output.refresh_and_notify = AsyncMock()
+        output.refresh_and_notify = create_async_mock_method()
 
         coordinator.register_output(output)
         assert output in coordinator._outputs
@@ -327,12 +330,12 @@ class TestTriadCoordinatorPolling:
         output1 = MagicMock(spec=TriadAmsOutput)
         output1.number = 1
         output1.has_source = True
-        output1.refresh_and_notify = AsyncMock()
+        output1.refresh_and_notify = create_async_mock_method()
 
         output2 = MagicMock(spec=TriadAmsOutput)
         output2.number = 2
         output2.has_source = True
-        output2.refresh_and_notify = AsyncMock()
+        output2.refresh_and_notify = create_async_mock_method()
 
         coordinator.register_output(output1)
         coordinator.register_output(output2)
@@ -354,7 +357,9 @@ class TestTriadCoordinatorPolling:
         output = MagicMock(spec=TriadAmsOutput)
         output.number = 1
         output.has_source = True
-        output.refresh_and_notify = AsyncMock(side_effect=Exception("Test error"))
+        output.refresh_and_notify = create_async_mock_method(
+            side_effect=Exception("Test error")
+        )
 
         coordinator.register_output(output)
         coordinator._poll_interval = 0.05
@@ -386,7 +391,7 @@ class TestTriadCoordinatorZoneManagement:
 
     @pytest.mark.asyncio
     async def test_zone_trigger_on_first_output(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that trigger zone turns on when first output is routed."""
         await coordinator.start()
@@ -398,7 +403,7 @@ class TestTriadCoordinatorZoneManagement:
 
     @pytest.mark.asyncio
     async def test_zone_trigger_off_last_output(
-        self, coordinator: TriadCoordinator, mock_connection: AsyncMock
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
     ) -> None:
         """Test that trigger zone turns off when last output is disconnected."""
         await coordinator.start()

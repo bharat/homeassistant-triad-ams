@@ -1,10 +1,11 @@
 """Unit tests for TriadAmsOutput model."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.triad_ams.models import TriadAmsOutput
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
@@ -12,15 +13,15 @@ def mock_coordinator() -> MagicMock:
     """Create a mock coordinator."""
     coordinator = MagicMock()
     coordinator.input_count = 8
-    coordinator.set_output_to_input = AsyncMock()
-    coordinator.set_output_volume = AsyncMock()
-    coordinator.set_output_mute = AsyncMock()
-    coordinator.volume_step_up = AsyncMock()
-    coordinator.volume_step_down = AsyncMock()
-    coordinator.disconnect_output = AsyncMock()
-    coordinator.get_output_volume = AsyncMock(return_value=0.5)
-    coordinator.get_output_mute = AsyncMock(return_value=False)
-    coordinator.get_output_source = AsyncMock(return_value=1)
+    coordinator.set_output_to_input = create_async_mock_method()
+    coordinator.set_output_volume = create_async_mock_method()
+    coordinator.set_output_mute = create_async_mock_method()
+    coordinator.volume_step_up = create_async_mock_method()
+    coordinator.volume_step_down = create_async_mock_method()
+    coordinator.disconnect_output = create_async_mock_method()
+    coordinator.get_output_volume = create_async_mock_method(return_value=0.5)
+    coordinator.get_output_mute = create_async_mock_method(return_value=False)
+    coordinator.get_output_source = create_async_mock_method(return_value=1)
     return coordinator
 
 

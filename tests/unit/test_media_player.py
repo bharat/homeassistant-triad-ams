@@ -1,6 +1,7 @@
 """Unit tests for TriadAmsMediaPlayer."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.components.media_player import MediaPlayerState
@@ -9,6 +10,7 @@ from homeassistant.core import HomeAssistant, ServiceValidationError
 
 from custom_components.triad_ams.media_player import TriadAmsMediaPlayer
 from custom_components.triad_ams.models import TriadAmsOutput
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
@@ -24,14 +26,14 @@ def mock_output() -> MagicMock:
     output.volume = None
     output.muted = False
     output.source_id_for_name = MagicMock(return_value=1)
-    output.set_source = AsyncMock()
-    output.set_volume = AsyncMock()
-    output.set_muted = AsyncMock()
-    output.volume_up_step = AsyncMock()
-    output.volume_down_step = AsyncMock()
-    output.turn_off = AsyncMock()
-    output.turn_on = AsyncMock()
-    output.refresh_and_notify = AsyncMock()
+    output.set_source = create_async_mock_method()
+    output.set_volume = create_async_mock_method()
+    output.set_muted = create_async_mock_method()
+    output.volume_up_step = create_async_mock_method()
+    output.volume_down_step = create_async_mock_method()
+    output.turn_off = create_async_mock_method()
+    output.turn_on = create_async_mock_method()
+    output.refresh_and_notify = create_async_mock_method()
     output.add_listener = MagicMock(return_value=MagicMock())
     return output
 
@@ -157,13 +159,16 @@ class TestTriadAmsMediaPlayerMediaAttributes:
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_title from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_title": "Test Song"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_title": "Test Song"}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._input_links = {1: "media_player.test"}
         media_player.output.source = 1
+        media_player._state_getter = state_getter
 
         # Need to set up the link subscription
         media_player._linked_entity_id = "media_player.test"
@@ -173,48 +178,64 @@ class TestTriadAmsMediaPlayerMediaAttributes:
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_artist from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_artist": "Test Artist"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_artist": "Test Artist"}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.media_artist == "Test Artist"
 
     def test_media_album_name(
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_album_name from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_album_name": "Test Album"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_album_name": "Test Album"}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.media_album_name == "Test Album"
 
     def test_media_duration(
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_duration from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_duration": 180}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_duration": 180}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.media_duration == 180
 
     def test_entity_picture(
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test entity_picture from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"entity_picture": "http://example.com/art.jpg"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type(
+            "State",
+            (),
+            {"attributes": {"entity_picture": "http://example.com/art.jpg"}},
+        )()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.entity_picture == "http://example.com/art.jpg"
 
 
@@ -522,9 +543,13 @@ class TestTriadAmsMediaPlayerLinkSubscription:
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test _linked_attr when state is not found."""
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> None:
+            return None
+
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
-        mock_hass.states.get = MagicMock(return_value=None)
+        media_player._state_getter = state_getter
 
         result = media_player._linked_attr("media_title")
 
@@ -534,22 +559,28 @@ class TestTriadAmsMediaPlayerLinkSubscription:
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_content_id from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_content_id": "track_123"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_content_id": "track_123"}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.media_content_id == "track_123"
 
     def test_media_content_type(
         self, media_player: TriadAmsMediaPlayer, mock_hass: MagicMock
     ) -> None:
         """Test media_content_type from linked entity."""
-        mock_state = MagicMock()
-        mock_state.attributes = {"media_content_type": "music"}
-        mock_hass.states.get = MagicMock(return_value=mock_state)
+        # Simple state object - no MagicMock
+        state = type("State", (), {"attributes": {"media_content_type": "music"}})()
+
+        def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
+            return state
 
         media_player.hass = mock_hass
         media_player._linked_entity_id = "media_player.test"
+        media_player._state_getter = state_getter
         assert media_player.media_content_type == "music"

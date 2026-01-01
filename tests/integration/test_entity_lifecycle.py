@@ -1,6 +1,6 @@
 """Entity lifecycle and cleanup tests."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.helpers import device_registry as dr
@@ -13,6 +13,7 @@ from custom_components.triad_ams.media_player import (
     _remove_orphaned_devices,
 )
 from custom_components.triad_ams.models import TriadAmsOutput
+from tests.conftest import create_async_mock_method
 from tests.integration.simulator import TriadAmsSimulator
 
 
@@ -213,7 +214,7 @@ class TestOptionsUpdate:
         self, mock_hass: MagicMock, mock_config_entry: MagicMock
     ) -> None:
         """Test that options update triggers reload."""
-        mock_hass.config_entries.async_reload = AsyncMock()
+        mock_hass.config_entries.async_reload = create_async_mock_method()
 
         # Simulate update listener
         await triad_ams_module._update_listener(mock_hass, mock_config_entry)

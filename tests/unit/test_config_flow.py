@@ -1,6 +1,6 @@
 """Unit tests for config flow."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant import config_entries
@@ -12,6 +12,7 @@ from custom_components.triad_ams.config_flow import (
     TriadAmsConfigFlow,
     TriadAmsOptionsFlowHandler,
 )
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
@@ -84,9 +85,11 @@ class TestTriadAmsConfigFlowUserStep:
         hass: MagicMock,
     ) -> None:
         """Test user step with user input."""
-        flow.async_set_unique_id = AsyncMock()
+        flow.async_set_unique_id = create_async_mock_method()
         flow._abort_if_unique_id_configured = MagicMock()
-        flow.async_step_channels = AsyncMock(return_value={"type": "create_entry"})
+        flow.async_step_channels = create_async_mock_method(
+            return_value={"type": "create_entry"}
+        )
 
         user_input = {
             "host": "192.168.1.100",
@@ -111,9 +114,11 @@ class TestTriadAmsConfigFlowUserStep:
         hass: MagicMock,
     ) -> None:
         """Test user step generates default name."""
-        flow.async_set_unique_id = AsyncMock()
+        flow.async_set_unique_id = create_async_mock_method()
         flow._abort_if_unique_id_configured = MagicMock()
-        flow.async_step_channels = AsyncMock(return_value={"type": "create_entry"})
+        flow.async_step_channels = create_async_mock_method(
+            return_value={"type": "create_entry"}
+        )
 
         user_input = {
             "host": "192.168.1.100",
@@ -133,9 +138,11 @@ class TestTriadAmsConfigFlowUserStep:
         hass: MagicMock,
     ) -> None:
         """Test unique ID generation."""
-        flow.async_set_unique_id = AsyncMock()
+        flow.async_set_unique_id = create_async_mock_method()
         flow._abort_if_unique_id_configured = MagicMock()
-        flow.async_step_channels = AsyncMock(return_value={"type": "create_entry"})
+        flow.async_step_channels = create_async_mock_method(
+            return_value={"type": "create_entry"}
+        )
 
         user_input = {
             "host": "192.168.1.100",

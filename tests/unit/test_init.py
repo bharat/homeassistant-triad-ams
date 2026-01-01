@@ -1,6 +1,6 @@
 """Unit tests for integration setup."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -12,6 +12,7 @@ from custom_components.triad_ams import (
     async_setup_entry,
     async_unload_entry,
 )
+from tests.conftest import create_async_mock_method
 
 
 @pytest.fixture
@@ -19,8 +20,12 @@ def hass() -> MagicMock:
     """Create a mock Home Assistant instance."""
     hass = MagicMock(spec=HomeAssistant)
     hass.config_entries = MagicMock()
-    hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
-    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.config_entries.async_forward_entry_setups = create_async_mock_method(
+        return_value=True
+    )
+    hass.config_entries.async_unload_platforms = create_async_mock_method(
+        return_value=True
+    )
     return hass
 
 
@@ -76,7 +81,7 @@ class TestAsyncSetupEntry:
         """Test that async_setup_entry creates coordinator."""
         with patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class:
             mock_coord = MagicMock()
-            mock_coord.start = AsyncMock()
+            mock_coord.start = create_async_mock_method()
             mock_coord_class.return_value = mock_coord
 
             result = await async_setup_entry(hass, config_entry)
@@ -93,7 +98,7 @@ class TestAsyncSetupEntry:
         """Test that async_setup_entry forwards platform setup."""
         with patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class:
             mock_coord = MagicMock()
-            mock_coord.start = AsyncMock()
+            mock_coord.start = create_async_mock_method()
             mock_coord_class.return_value = mock_coord
 
             await async_setup_entry(hass, config_entry)
@@ -110,7 +115,7 @@ class TestAsyncSetupEntry:
         """Test that async_setup_entry adds update listener."""
         with patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class:
             mock_coord = MagicMock()
-            mock_coord.start = AsyncMock()
+            mock_coord.start = create_async_mock_method()
             mock_coord_class.return_value = mock_coord
 
             await async_setup_entry(hass, config_entry)
@@ -124,7 +129,9 @@ class TestAsyncSetupEntry:
         """Test that async_setup_entry handles coordinator start errors."""
         with patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class:
             mock_coord = MagicMock()
-            mock_coord.start = AsyncMock(side_effect=Exception("Start failed"))
+            mock_coord.start = create_async_mock_method(
+                side_effect=Exception("Start failed")
+            )
             mock_coord_class.return_value = mock_coord
 
             # Should not raise
@@ -142,8 +149,8 @@ class TestAsyncUnloadEntry:
     ) -> None:
         """Test successful unload."""
         mock_coord = MagicMock()
-        mock_coord.stop = AsyncMock()
-        mock_coord.disconnect = AsyncMock()
+        mock_coord.stop = create_async_mock_method()
+        mock_coord.disconnect = create_async_mock_method()
         mock_coord._input_link_unsubs = [MagicMock(), MagicMock()]
         config_entry.runtime_data = mock_coord
 
@@ -163,8 +170,8 @@ class TestAsyncUnloadEntry:
     ) -> None:
         """Test unload when no input link subscriptions."""
         mock_coord = MagicMock()
-        mock_coord.stop = AsyncMock()
-        mock_coord.disconnect = AsyncMock()
+        mock_coord.stop = create_async_mock_method()
+        mock_coord.disconnect = create_async_mock_method()
         # No _input_link_unsubs attribute
         config_entry.runtime_data = mock_coord
 
@@ -179,8 +186,8 @@ class TestAsyncUnloadEntry:
     ) -> None:
         """Test that unload handles stop errors."""
         mock_coord = MagicMock()
-        mock_coord.stop = AsyncMock(side_effect=Exception("Stop failed"))
-        mock_coord.disconnect = AsyncMock()
+        mock_coord.stop = create_async_mock_method(side_effect=Exception("Stop failed"))
+        mock_coord.disconnect = create_async_mock_method()
         config_entry.runtime_data = mock_coord
 
         # Should not raise
@@ -194,7 +201,9 @@ class TestAsyncUnloadEntry:
         self, hass: MagicMock, config_entry: MagicMock
     ) -> None:
         """Test unload when platform unload fails."""
-        hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+        hass.config_entries.async_unload_platforms = create_async_mock_method(
+            return_value=False
+        )
         mock_coord = MagicMock()
         config_entry.runtime_data = mock_coord
 

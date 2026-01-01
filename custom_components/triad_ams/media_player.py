@@ -17,7 +17,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import State
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
@@ -30,13 +33,20 @@ def _build_input_names(
     hass: HomeAssistant,
     active_inputs: list[int],
     input_links_opt: dict[str, str],
+    *,
+    state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> dict[int, str]:
     """Build input names dict from linked entities or defaults."""
+    if state_getter is None:
+
+        def state_getter(h: HomeAssistant, eid: str) -> State | None:
+            return h.states.get(eid)
+
     input_names: dict[int, str] = {}
     for i in active_inputs:
         ent_id = input_links_opt.get(str(i))
         if ent_id:
-            st = hass.states.get(ent_id)
+            st = state_getter(hass, ent_id)
             if st:
                 input_names[i] = st.name
                 continue
@@ -45,15 +55,22 @@ def _build_input_names(
 
 
 @callback
-def _update_input_name_from_state(
+def _update_input_name_from_state(  # noqa: PLR0913
     hass: HomeAssistant,
     input_num: int,
     entity_id: str,
     input_names: dict[int, str],
     entities: list[TriadAmsMediaPlayer],
+    *,
+    state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Update input name from entity state and notify entities."""
-    new_state = hass.states.get(entity_id)
+    if state_getter is None:
+
+        def state_getter(h: HomeAssistant, eid: str) -> State | None:
+            return h.states.get(eid)
+
+    new_state = state_getter(hass, entity_id)
     if new_state and new_state.name:
         old_name = input_names.get(input_num, f"Input {input_num}")
         new_name = new_state.name
@@ -71,12 +88,14 @@ def _update_input_name_from_state(
 
 
 @callback
-def _create_input_link_handler(
+def _create_input_link_handler(  # noqa: PLR0913
     hass: HomeAssistant,
     input_links_opt: dict[str, str],
     active_inputs: list[int],
     input_names: dict[int, str],
     entities: list[TriadAmsMediaPlayer],
+    *,
+    state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> Any:
     """Create callback handler for input link state changes."""
 
@@ -100,7 +119,9 @@ def _create_input_link_handler(
         if input_num is None or input_num not in active_inputs:
             return
 
-        _update_input_name_from_state(hass, input_num, entity_id, input_names, entities)
+        _update_input_name_from_state(
+            hass, input_num, entity_id, input_names, entities, state_getter=state_getter
+        )
 
     return _handle_input_link_state_change
 
@@ -112,6 +133,8 @@ def _setup_input_link_subscriptions(  # noqa: PLR0913
     active_inputs: list[int],
     input_names: dict[int, str],
     entities: list[TriadAmsMediaPlayer],
+    *,
+    state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Set up subscriptions to linked entity state changes."""
     linked_entity_ids = [ent_id for ent_id in input_links_opt.values() if ent_id]
@@ -119,7 +142,12 @@ def _setup_input_link_subscriptions(  # noqa: PLR0913
         return
 
     handler = _create_input_link_handler(
-        hass, input_links_opt, active_inputs, input_names, entities
+        hass,
+        input_links_opt,
+        active_inputs,
+        input_names,
+        entities,
+        state_getter=state_getter,
     )
     unsub = async_track_state_change_event(hass, linked_entity_ids, handler)
 
@@ -135,7 +163,9 @@ def _setup_input_link_subscriptions(  # noqa: PLR0913
         if ent_id and (
             i not in input_names or input_names.get(i, "").startswith("Input ")
         ):
-            _update_input_name_from_state(hass, i, ent_id, input_names, entities)
+            _update_input_name_from_state(
+                hass, i, ent_id, input_names, entities, state_getter=state_getter
+            )
 
 
 def _cleanup_stale_entities(
@@ -257,6 +287,8 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         output: TriadAmsOutput,
         entry: ConfigEntry,
         input_links: dict[int, str | None],
+        *,
+        state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
     ) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
@@ -265,6 +297,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._linked_unsub: callable | None = None
         self._output_unsub: callable | None = None
         self._options = entry.options
+        if state_getter is not None:
+            self._state_getter = state_getter
+        else:
+
+            def default_state_getter(h: HomeAssistant, eid: str) -> State | None:
+                return h.states.get(eid)
+
+            self._state_getter = default_state_getter
         # Keep per-entry unique entity IDs stable
         self._attr_unique_id = f"{entry.entry_id}_output_{output.number}"
         # Entity name part; with has_entity_name this becomes the suffix
@@ -315,7 +355,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     def _linked_attr(self, key: str) -> Any | None:
         if not self._linked_entity_id or self.hass is None:
             return None
-        st = self.hass.states.get(self._linked_entity_id)
+        st = self._state_getter(self.hass, self._linked_entity_id)
         if not st:
             return None
         return st.attributes.get(key)
