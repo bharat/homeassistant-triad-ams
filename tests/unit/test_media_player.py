@@ -405,6 +405,11 @@ class TestTriadAmsMediaPlayerLifecycle:
         """Test entity added to hass."""
         media_player.hass = mock_hass
         media_player.async_write_ha_state = MagicMock()
+        # Add mock coordinator for availability listener (Silver requirement)
+        mock_coordinator = MagicMock()
+        mock_coordinator.is_available = True
+        mock_coordinator.add_availability_listener = MagicMock(return_value=MagicMock())
+        mock_output.coordinator = mock_coordinator
 
         await media_player.async_added_to_hass()
 

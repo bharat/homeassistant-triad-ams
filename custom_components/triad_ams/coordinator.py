@@ -69,11 +69,45 @@ class TriadCoordinator:
         # Track active outputs per zone (zone -> set of output numbers)
         # Zones are 1-based and mapped in groups of 8 outputs (clamped 1..3).
         self._zone_active_outputs: dict[int, set[int]] = {1: set(), 2: set(), 3: set()}
+        # Availability tracking (Silver requirement)
+        self._available: bool = True
+        self._availability_listeners: weakref.WeakSet[Callable[[bool], None]] = (
+            weakref.WeakSet()
+        )
 
     @property
     def input_count(self) -> int:
         """Public accessor for the configured input count."""
         return self._input_count
+
+    @property
+    def is_available(self) -> bool:
+        """Return True if the coordinator is available (connected to device)."""
+        return self._available
+
+    def add_availability_listener(
+        self, callback: Callable[[bool], None]
+    ) -> Callable[[], None]:
+        """
+        Register callback for availability changes.
+
+        Returns an unsubscribe function.
+        """
+        self._availability_listeners.add(callback)
+
+        def _unsub() -> None:
+            with contextlib.suppress(ValueError):
+                self._availability_listeners.discard(callback)
+
+        return _unsub
+
+    def _notify_availability_listeners(self, *, is_available: bool) -> None:
+        """Notify all listeners of availability change."""
+        for cb in list(self._availability_listeners):
+            try:
+                cb(is_available=is_available)
+            except Exception:
+                _LOGGER.exception("Error in availability listener")
 
     async def start(self) -> None:
         """Start the single worker."""
@@ -116,7 +150,14 @@ class TriadCoordinator:
         self._outputs.add(output)
 
     async def _ensure_connection(self) -> None:
+        """Ensure connection is established and update availability state."""
+        was_available = self._available
         await asyncio.wait_for(self._conn.connect(), timeout=CONNECTION_TIMEOUT)
+        # If we were unavailable and now connected, mark as available
+        if not was_available:
+            self._available = True
+            _LOGGER.info("Triad AMS device available")
+            self._notify_availability_listeners(is_available=True)
 
     async def _run_worker(self) -> None:
         """Worker: dequeue, pace, ensure connection, execute, propagate result/error."""
@@ -141,12 +182,22 @@ class TriadCoordinator:
                     "Command failed; dropping and reopening connection: %s", exc
                 )
                 self._conn.close_nowait()
+                # Mark as unavailable and notify listeners
+                if self._available:
+                    self._available = False
+                    _LOGGER.warning("Triad AMS device unavailable: %s", exc)
+                    self._notify_availability_listeners(is_available=False)
                 # Best-effort immediate reconnect so subsequent commands are ready.
                 try:
                     await asyncio.wait_for(
                         self._conn.connect(), timeout=CONNECTION_TIMEOUT
                     )
                     _LOGGER.info("Reconnected to Triad AMS after error")
+                    # Mark as available again after successful reconnect
+                    if not self._available:
+                        self._available = True
+                        _LOGGER.info("Triad AMS device available")
+                        self._notify_availability_listeners(is_available=True)
                 except Exception as reconnect_exc:  # noqa: BLE001 - log and proceed
                     _LOGGER.warning(
                         "Reconnect attempt failed (will retry on next command): %s",

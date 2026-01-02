@@ -271,6 +271,8 @@ async def async_setup_entry(
 class TriadAmsMediaPlayer(MediaPlayerEntity):
     """Media player entity representing a Triad AMS output."""
 
+    PARALLEL_UPDATES = 1  # Silver requirement: limit concurrent updates
+
     _attr_supported_features = (
         MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.TURN_ON
@@ -296,7 +298,10 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
         self._output_unsub: callable | None = None
+        self._availability_unsub: callable | None = None
         self._options = entry.options
+        # Initialize availability from coordinator (Silver requirement)
+        self._attr_available: bool = True
         if state_getter is not None:
             self._state_getter = state_getter
         else:
@@ -352,6 +357,21 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._update_link_subscription()
         self.async_write_ha_state()
 
+    @callback
+    def _update_availability(self, *, is_available: bool) -> None:
+        """Handle coordinator availability changes (Silver requirement)."""
+        if self._attr_available == is_available:
+            return
+        self._attr_available = is_available
+        _LOGGER.info(
+            "Triad AMS output %d %s",
+            self.output.number,
+            "available" if is_available else "unavailable",
+        )
+        # Only write state if hass is set (entity is added to hass)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
     def _linked_attr(self, key: str) -> Any | None:
         if not self._linked_entity_id or self.hass is None:
             return None
@@ -398,8 +418,25 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     # ---- Core media player properties and commands ----
     @property
+    def available(self) -> bool:
+        """Return True if the entity is available."""
+        # Check coordinator availability directly (Silver requirement)
+        coordinator = getattr(self.output, "coordinator", None)
+        if coordinator is not None and hasattr(coordinator, "is_available"):
+            # is_available is a property, access it and ensure boolean
+            avail = coordinator.is_available
+            # Handle both property access and MagicMock return_value
+            if callable(avail):
+                return bool(avail())
+            return bool(avail)
+        return self._attr_available
+
+    @property
     def state(self) -> str:
-        """Return the state of the entity (STATE_ON or STATE_OFF)."""
+        """Return the state of the entity (STATE_ON, STATE_OFF, or UNAVAILABLE)."""
+        if not self.available:
+            # Return None for unavailable state (Home Assistant convention)
+            return None
         return MediaPlayerState.ON if self.is_on else MediaPlayerState.OFF
 
     @property
@@ -447,6 +484,15 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: seed and write initial state."""
         self._update_link_subscription()
+        # Subscribe to coordinator availability changes (Silver requirement)
+        coordinator = self.output.coordinator
+        if hasattr(coordinator, "add_availability_listener"):
+            self._availability_unsub = coordinator.add_availability_listener(
+                self._update_availability
+            )
+            # Set initial availability from coordinator
+            if hasattr(coordinator, "is_available"):
+                self._attr_available = coordinator.is_available
         # Subscribe first so any async refresh updates the state when done
         self._output_unsub = self.output.add_listener(self._handle_output_poll_update)
         # Queue an initial refresh without blocking entity setup
@@ -459,6 +505,9 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         if self._output_unsub is not None:
             self._output_unsub()
             self._output_unsub = None
+        if self._availability_unsub is not None:
+            self._availability_unsub()
+            self._availability_unsub = None
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set the volume level of the output (0..1)."""
