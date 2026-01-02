@@ -33,7 +33,7 @@ rules:
 
   # Gold
   devices: done
-  diagnostics: todo
+  diagnostics: done
   discovery-update-info: not-applicable
   discovery: not-applicable
   docs-data-update: todo
@@ -44,14 +44,14 @@ rules:
   docs-troubleshooting: done
   docs-use-cases: todo
   dynamic-devices: not-applicable
-  entity-category: todo
+  entity-category: done
   entity-device-class: done
-  entity-disabled-by-default: todo
+  entity-disabled-by-default: done
   entity-translations: done
-  exception-translations: todo
-  icon-translations: todo
+  exception-translations: done
+  icon-translations: done
   reconfiguration-flow: done
-  repair-issues: todo
+  repair-issues: done
   stale-devices: done
 
   # Platinum
