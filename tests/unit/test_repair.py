@@ -86,7 +86,6 @@ class TestRepairIssues:
             mock_create_issue.return_value = None
 
             # Make async_create_task actually schedule the coroutine
-            # IMPORTANT: Set this BEFORE calling async_setup_entry
             created_tasks = []
 
             def async_create_task(coro):  # noqa: ANN001, ANN202
@@ -94,11 +93,9 @@ class TestRepairIssues:
                 created_tasks.append(task)
                 return task
 
-            # Wrap in MagicMock to track calls AND execute the function
             mock_hass.async_create_task = MagicMock(side_effect=async_create_task)
 
-            # Setup repair platform (callback captures mock_hass with
-            # async_create_task set)
+            # Setup repair platform
             assert repair is not None
             await repair.async_setup_entry(mock_hass, mock_config_entry_repair)
 
@@ -115,12 +112,14 @@ class TestRepairIssues:
             coordinator_repair._notify_availability_listeners(is_available=False)
 
             # Wait for all created tasks to complete
-            # Give a small delay to ensure task is created
+            # Need to give a moment for the task to be created
             await asyncio.sleep(0.01)
             if created_tasks:
                 await asyncio.gather(*created_tasks, return_exceptions=True)
 
             # Verify issue was created
+            # This will fail until repair platform creates issues
+            # Check if async_create_task was called
             assert mock_hass.async_create_task.called, (
                 "async_create_task was not called"
             )
@@ -150,16 +149,17 @@ class TestRepairIssues:
             mock_delete_issue.return_value = None
 
             # Make async_create_task actually schedule the coroutine
-            # IMPORTANT: Set this BEFORE calling async_setup_entry
             created_tasks = []
 
-            def async_create_task(coro):  # noqa: ANN001, ANN202
+            def async_create_task_side_effect(coro):  # noqa: ANN001, ANN202
                 task = asyncio.create_task(coro)
                 created_tasks.append(task)
                 return task
 
-            # Wrap in MagicMock to track calls AND execute the function
-            mock_hass.async_create_task = MagicMock(side_effect=async_create_task)
+            mock_hass.async_create_task = MagicMock(
+                side_effect=async_create_task_side_effect
+            )
+            mock_hass.created_tasks = created_tasks
 
             # Setup repair platform
             assert repair is not None
@@ -177,7 +177,6 @@ class TestRepairIssues:
             coordinator_repair._available = False
             coordinator_repair._notify_availability_listeners(is_available=False)
             # Wait for tasks
-            await asyncio.sleep(0.01)
             if created_tasks:
                 await asyncio.gather(*created_tasks, return_exceptions=True)
                 created_tasks.clear()
@@ -185,11 +184,11 @@ class TestRepairIssues:
             coordinator_repair._available = True
             coordinator_repair._notify_availability_listeners(is_available=True)
             # Wait for tasks
-            await asyncio.sleep(0.01)
             if created_tasks:
                 await asyncio.gather(*created_tasks, return_exceptions=True)
 
             # Verify issue was deleted when device became available
+            # This will fail until repair platform deletes issues
             assert mock_hass.async_create_task.called, (
                 "async_create_task was not called"
             )

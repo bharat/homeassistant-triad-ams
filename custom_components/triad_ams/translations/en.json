@@ -10,6 +10,20 @@
             }
         }
     },
+    "exceptions": {
+        "input_entity_not_linked": {
+            "message": "Input entity {input_entity_id} is not linked in integration options"
+        },
+        "input_not_active": {
+            "message": "Input {input} is not active"
+        }
+    },
+    "repairs": {
+        "device_unavailable": {
+            "title": "Triad AMS device unavailable",
+            "description": "The Triad AMS device ({entry_title}) is currently unavailable. Please check the network connection and device power."
+        }
+    },
     "services": {
         "turn_on_with_source": {
             "name": "Turn on with Source",
@@ -20,6 +34,6 @@
                     "description": "The media player entity to use as the input source."
                 }
             }
-            }
+        }
     }
 }

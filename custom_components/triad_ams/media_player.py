@@ -11,9 +11,12 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.core import HomeAssistant, ServiceValidationError, callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
 
 if TYPE_CHECKING:
@@ -27,6 +30,18 @@ from .const import DOMAIN
 from .models import TriadAmsOutput
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class InputEntityNotLinkedError(HomeAssistantError):
+    """Error raised when input entity is not linked in integration options."""
+
+    translation_key = "input_entity_not_linked"
+
+
+class InputNotActiveError(HomeAssistantError):
+    """Error raised when input is not active."""
+
+    translation_key = "input_not_active"
 
 
 def _build_input_names(
@@ -316,6 +331,10 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self._attr_name = f"Output {output.number}"
         self._attr_has_entity_name = True
         self._attr_device_class = MediaPlayerDeviceClass.SPEAKER
+        # Gold requirement: entity category
+        self._attr_entity_category = EntityCategory.CONFIG
+        # Gold requirement: entity disabled by default
+        self._attr_entity_registry_enabled_default = RegistryEntryDisabler.USER
         # Group all outputs under one device per config entry
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
@@ -565,12 +584,18 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
                     pass
 
         if source is None:
-            msg = f"Input entity {input_entity_id} is not linked in integration options"
-            raise ValueError(msg)
+            raise InputEntityNotLinkedError(
+                translation_domain=DOMAIN,
+                translation_key="input_entity_not_linked",
+                translation_placeholders={"input_entity_id": input_entity_id},
+            )
 
         if source not in self._options.get("active_inputs", []):
-            msg = f"Input {source} is not active"
-            raise ServiceValidationError(msg)
+            raise InputNotActiveError(
+                translation_domain=DOMAIN,
+                translation_key="input_not_active",
+                translation_placeholders={"input": str(source)},
+            )
 
         await self.output.set_source(source)
         await self.output.turn_on()

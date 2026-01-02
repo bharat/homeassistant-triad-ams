@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
-from .coordinator import TriadCoordinator
+    from .coordinator import TriadCoordinator
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, config_entry: ConfigEntry
+    _hass: HomeAssistant,
+    config_entry: ConfigEntry,
 ) -> dict[str, Any]:
     """
     Return diagnostics for a config entry.
@@ -35,27 +37,28 @@ async def async_get_config_entry_diagnostics(
 
     if coordinator is not None:
         diagnostics_data["coordinator"] = {
-            "host": coordinator._host,
-            "port": coordinator._port,
+            "host": coordinator._host,  # noqa: SLF001
+            "port": coordinator._port,  # noqa: SLF001
             "input_count": coordinator.input_count,
             "available": coordinator.is_available,
         }
 
         # Get output states if available
-        outputs_data = []
         if hasattr(coordinator, "_outputs"):
-            for output in list(coordinator._outputs):
-                if output is not None:
-                    outputs_data.append(
-                        {
-                            "number": output.number,
-                            "name": output.name,
-                            "volume": getattr(output, "_volume", None),
-                            "muted": getattr(output, "_muted", None),
-                            "source": getattr(output, "_assigned_input", None),
-                            "has_source": getattr(output, "has_source", False),
-                        }
-                    )
-        diagnostics_data["outputs"] = outputs_data
+            outputs_data = [
+                {
+                    "number": output.number,
+                    "name": output.name,
+                    "volume": getattr(output, "_volume", None),
+                    "muted": getattr(output, "_muted", None),
+                    "source": getattr(output, "_assigned_input", None),
+                    "has_source": getattr(output, "has_source", False),
+                }
+                for output in list(coordinator._outputs)  # noqa: SLF001
+                if output is not None
+            ]
+            diagnostics_data["outputs"] = outputs_data
+        else:
+            diagnostics_data["outputs"] = []
 
     return diagnostics_data

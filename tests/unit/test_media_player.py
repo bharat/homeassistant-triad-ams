@@ -8,9 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from homeassistant.components.media_player import MediaPlayerState
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceValidationError
+from homeassistant.core import HomeAssistant
 
-from custom_components.triad_ams.media_player import TriadAmsMediaPlayer
+from custom_components.triad_ams.media_player import (
+    InputEntityNotLinkedError,
+    InputNotActiveError,
+    TriadAmsMediaPlayer,
+)
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
 
@@ -375,7 +379,7 @@ class TestTriadAmsMediaPlayerServices:
         """Test turn_on_with_source with invalid input link."""
         media_player._input_links = {1: "media_player.input1"}
 
-        with pytest.raises(ValueError, match="not linked"):
+        with pytest.raises(InputEntityNotLinkedError):
             await media_player.async_turn_on_with_source("media_player.unknown")
 
     @pytest.mark.asyncio
@@ -388,7 +392,7 @@ class TestTriadAmsMediaPlayerServices:
         media_player._input_links = {1: "media_player.input1"}
         media_player._options = {"active_inputs": [2]}  # Input 1 not active
 
-        with pytest.raises(ServiceValidationError, match="not active"):
+        with pytest.raises(InputNotActiveError):
             await media_player.async_turn_on_with_source("media_player.input1")
 
 

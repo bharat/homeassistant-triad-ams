@@ -103,10 +103,18 @@ class TestAsyncSetupEntry:
 
             await async_setup_entry(hass, config_entry)
 
-            hass.config_entries.async_forward_entry_setups.assert_called_once()
-            call_args = hass.config_entries.async_forward_entry_setups.call_args
+            # Should be called twice: once for media_player, once for repairs
+            assert hass.config_entries.async_forward_entry_setups.call_count == 2
+
+            # Check first call (media_player platforms)
+            call_args = hass.config_entries.async_forward_entry_setups.call_args_list[0]
             assert call_args[0][0] == config_entry
             assert "media_player" in call_args[0][1]
+
+            # Check second call (repairs platform)
+            call_args = hass.config_entries.async_forward_entry_setups.call_args_list[1]
+            assert call_args[0][0] == config_entry
+            assert "repairs" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_adds_update_listener(
