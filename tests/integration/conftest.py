@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.integration.simulator import triad_ams_simulator
 
@@ -27,9 +30,10 @@ async def coordinator_fixture(
 ) -> AsyncGenerator[TriadCoordinator]:
     """Provide a started coordinator with automatic cleanup."""
     _simulator, host, port = simulator_fixture
-    coordinator = TriadCoordinator(
-        host, port, 8, min_send_interval=0.01, poll_interval=0.1
+    config = TriadCoordinatorConfig(
+        host=host, port=port, input_count=8, min_send_interval=0.01, poll_interval=0.1
     )
+    coordinator = TriadCoordinator(config)
     await coordinator.start()
     try:
         yield coordinator

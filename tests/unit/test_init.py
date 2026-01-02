@@ -12,6 +12,7 @@ from custom_components.triad_ams import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.triad_ams.coordinator import TriadCoordinatorConfig
 from tests.conftest import create_async_mock_method
 
 
@@ -87,7 +88,10 @@ class TestAsyncSetupEntry:
             result = await async_setup_entry(hass, config_entry)
 
             assert result is True
-            mock_coord_class.assert_called_once_with("192.168.1.100", 52000, 8)
+            expected_config = TriadCoordinatorConfig(
+                host="192.168.1.100", port=52000, input_count=8
+            )
+            mock_coord_class.assert_called_once_with(expected_config)
             assert config_entry.runtime_data == mock_coord
             mock_coord.start.assert_called_once()
 
@@ -159,7 +163,7 @@ class TestAsyncUnloadEntry:
         mock_coord = MagicMock()
         mock_coord.stop = create_async_mock_method()
         mock_coord.disconnect = create_async_mock_method()
-        mock_coord._input_link_unsubs = [MagicMock(), MagicMock()]
+        mock_coord.input_link_unsubs = [MagicMock(), MagicMock()]
         config_entry.runtime_data = mock_coord
 
         result = await async_unload_entry(hass, config_entry)
@@ -169,7 +173,7 @@ class TestAsyncUnloadEntry:
         mock_coord.stop.assert_called_once()
         mock_coord.disconnect.assert_called_once()
         # Should clean up input link subscriptions
-        for unsub in mock_coord._input_link_unsubs:
+        for unsub in mock_coord.input_link_unsubs:
             unsub.assert_called_once()
 
     @pytest.mark.asyncio

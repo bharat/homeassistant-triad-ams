@@ -12,6 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.triad_ams.media_player import (
+    InputLinkConfig,
     TriadAmsMediaPlayer,
     _build_input_names,
     _cleanup_stale_entities,
@@ -139,12 +140,17 @@ class TestUpdateInputNameFromState:
         def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
             return state
 
+        config = InputLinkConfig(
+            input_links_opt={},
+            active_inputs=[],
+            input_names=input_names,
+            entities=entities,
+        )
         _update_input_name_from_state(
             mock_hass,
             1,
             "media_player.input1",
-            input_names,
-            entities,
+            config,
             state_getter=state_getter,
         )
 
@@ -164,12 +170,17 @@ class TestUpdateInputNameFromState:
         def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
             return state
 
+        config = InputLinkConfig(
+            input_links_opt={},
+            active_inputs=[],
+            input_names=input_names,
+            entities=entities,
+        )
         _update_input_name_from_state(
             mock_hass,
             1,
             "media_player.input1",
-            input_names,
-            entities,
+            config,
             state_getter=state_getter,
         )
 
@@ -185,12 +196,17 @@ class TestUpdateInputNameFromState:
         def state_getter(_hass: HomeAssistant, _entity_id: str) -> None:
             return None
 
+        config = InputLinkConfig(
+            input_links_opt={},
+            active_inputs=[],
+            input_names=input_names,
+            entities=entities,
+        )
         _update_input_name_from_state(
             mock_hass,
             1,
             "media_player.input1",
-            input_names,
-            entities,
+            config,
             state_getter=state_getter,
         )
 
@@ -216,13 +232,14 @@ class TestCreateInputLinkHandler:
         def state_getter(_hass: HomeAssistant, _entity_id: str) -> Any:
             return state
 
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
+        )
         handler = _create_input_link_handler(
-            mock_hass,
-            input_links_opt,
-            active_inputs,
-            input_names,
-            entities,
-            state_getter=state_getter,
+            mock_hass, config, state_getter=state_getter
         )
 
         mock_event = MagicMock()
@@ -242,9 +259,13 @@ class TestCreateInputLinkHandler:
         input_names = {1: "Input 1"}
         entities = [MagicMock()]
 
-        handler = _create_input_link_handler(
-            mock_hass, input_links_opt, active_inputs, input_names, entities
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
         )
+        handler = _create_input_link_handler(mock_hass, config)
 
         mock_event = MagicMock()
         mock_event.data = {}  # No entity_id
@@ -263,9 +284,13 @@ class TestCreateInputLinkHandler:
         input_names = {1: "Input 1"}
         entities = [MagicMock()]
 
-        handler = _create_input_link_handler(
-            mock_hass, input_links_opt, active_inputs, input_names, entities
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
         )
+        handler = _create_input_link_handler(mock_hass, config)
 
         mock_event = MagicMock()
         mock_event.data = {"entity_id": "media_player.unknown"}
@@ -284,9 +309,13 @@ class TestCreateInputLinkHandler:
         input_names = {2: "Input 2"}
         entities = [MagicMock()]
 
-        handler = _create_input_link_handler(
-            mock_hass, input_links_opt, active_inputs, input_names, entities
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
         )
+        handler = _create_input_link_handler(mock_hass, config)
 
         mock_event = MagicMock()
         mock_event.data = {"entity_id": "media_player.input1"}
@@ -314,20 +343,19 @@ class TestSetupInputLinkSubscriptions:
         if hasattr(mock_coordinator, "_input_link_unsubs"):
             delattr(mock_coordinator, "_input_link_unsubs")
 
-        _setup_input_link_subscriptions(
-            mock_hass,
-            mock_coordinator,
-            input_links_opt,
-            active_inputs,
-            input_names,
-            entities,
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
         )
+        _setup_input_link_subscriptions(mock_hass, mock_coordinator, config)
 
         # Should not create any subscriptions (early return before creating attribute)
         # MagicMock will auto-create attributes, so we check it wasn't set to a list
-        if hasattr(mock_coordinator, "_input_link_unsubs"):
+        if hasattr(mock_coordinator, "input_link_unsubs"):
             # If it exists, it should be empty or not a list
-            unsubs = getattr(mock_coordinator, "_input_link_unsubs", None)
+            unsubs = getattr(mock_coordinator, "input_link_unsubs", None)
             # The function returns early, so this shouldn't be a list
             assert not isinstance(unsubs, list) or len(unsubs) == 0
 
@@ -341,25 +369,32 @@ class TestSetupInputLinkSubscriptions:
         input_names = {1: "Input 1", 2: "Input 2"}
         entities = [MagicMock()]
 
-        # Initialize the attribute as a list
-        mock_coordinator._input_link_unsubs = []
+        # Set up mock to simulate a real coordinator with public API
+        # Since mock_coordinator is not a real TriadCoordinator, it will use
+        # the fallback path. Use a real list that we can check later - set it
+        # directly on the mock
+        unsubs_list: list[MagicMock] = []
+        mock_coordinator.input_link_unsubs = unsubs_list
+
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
+        )
 
         mock_unsub = MagicMock()
         with patch(
             "custom_components.triad_ams.media_player.async_track_state_change_event",
             return_value=mock_unsub,
         ):
-            _setup_input_link_subscriptions(
-                mock_hass,
-                mock_coordinator,
-                input_links_opt,
-                active_inputs,
-                input_names,
-                entities,
-            )
+            _setup_input_link_subscriptions(mock_hass, mock_coordinator, config)
 
-            assert hasattr(mock_coordinator, "_input_link_unsubs")
-            assert len(mock_coordinator._input_link_unsubs) == 1
+            # Verify the unsubscribe function was registered
+            # The function should append to input_link_unsubs for mocks
+            # Check the actual list we set up
+            assert len(unsubs_list) == 1
+            assert unsubs_list[0] == mock_unsub
 
     @pytest.mark.asyncio
     async def test_setup_input_link_subscriptions_updates_existing_names(
@@ -383,14 +418,14 @@ class TestSetupInputLinkSubscriptions:
             "custom_components.triad_ams.media_player.async_track_state_change_event",
             return_value=mock_unsub,
         ):
+            config = InputLinkConfig(
+                input_links_opt=input_links_opt,
+                active_inputs=active_inputs,
+                input_names=input_names,
+                entities=entities,
+            )
             _setup_input_link_subscriptions(
-                mock_hass,
-                mock_coordinator,
-                input_links_opt,
-                active_inputs,
-                input_names,
-                entities,
-                state_getter=state_getter,
+                mock_hass, mock_coordinator, config, state_getter=state_getter
             )
 
             # Should update the name

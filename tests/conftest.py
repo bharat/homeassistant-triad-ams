@@ -17,7 +17,10 @@ import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 from custom_components.triad_ams.models import TriadAmsOutput
 
 if TYPE_CHECKING:
@@ -560,7 +563,8 @@ def coordinator_with_mock_connection(
     mock_connection: MagicMock,
 ) -> Generator[TriadCoordinator]:
     """Create a real TriadCoordinator with a mocked connection."""
-    return TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
+    config = TriadCoordinatorConfig(host="192.168.1.100", port=52000, input_count=8)
+    return TriadCoordinator(config, connection=mock_connection)
 
 
 @pytest.fixture

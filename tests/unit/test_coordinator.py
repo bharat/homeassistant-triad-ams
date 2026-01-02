@@ -5,7 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
 
@@ -13,14 +16,14 @@ from tests.conftest import create_async_mock_method
 @pytest.fixture
 def coordinator(mock_connection: MagicMock) -> TriadCoordinator:
     """Create a TriadCoordinator with mocked connection."""
-    return TriadCoordinator(
-        "192.168.1.100",
-        52000,
-        8,
+    config = TriadCoordinatorConfig(
+        host="192.168.1.100",
+        port=52000,
+        input_count=8,
         min_send_interval=0.01,
         poll_interval=0.1,
-        connection=mock_connection,
     )
+    return TriadCoordinator(config, connection=mock_connection)
 
 
 class TestTriadCoordinatorInitialization:
@@ -28,7 +31,8 @@ class TestTriadCoordinatorInitialization:
 
     def test_initialization(self, mock_connection: MagicMock) -> None:
         """Test basic initialization."""
-        coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
+        config = TriadCoordinatorConfig(host="192.168.1.100", port=52000, input_count=8)
+        coord = TriadCoordinator(config, connection=mock_connection)
 
         assert coord._host == "192.168.1.100"
         assert coord._port == 52000

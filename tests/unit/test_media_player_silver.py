@@ -7,7 +7,10 @@ from homeassistant.components.media_player import MediaPlayerState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 from custom_components.triad_ams.media_player import TriadAmsMediaPlayer
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
@@ -256,7 +259,8 @@ class TestTriadAmsMediaPlayerSilverLogging:
     ) -> None:
         """Test coordinator logs when availability changes to False."""
         # Create a real coordinator instance
-        coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
+        config = TriadCoordinatorConfig(host="192.168.1.100", port=52000, input_count=8)
+        coord = TriadCoordinator(config, connection=mock_connection)
 
         # Simulate connection failure triggering unavailable state
         # The logging happens in _run_worker when network exceptions occur
@@ -278,7 +282,8 @@ class TestTriadAmsMediaPlayerSilverLogging:
         self, mock_connection: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Test coordinator logs when availability changes to True."""
-        coord = TriadCoordinator("192.168.1.100", 52000, 8, connection=mock_connection)
+        config = TriadCoordinatorConfig(host="192.168.1.100", port=52000, input_count=8)
+        coord = TriadCoordinator(config, connection=mock_connection)
 
         # Simulate successful reconnection
         # The logging happens in _ensure_connection when reconnecting

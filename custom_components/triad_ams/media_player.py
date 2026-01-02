@@ -86,26 +86,11 @@ def _update_input_name_from_state(
     hass: HomeAssistant,
     input_num: int,
     entity_id: str,
-    input_names: dict[int, str] | InputLinkConfig,
-    entities: list[TriadAmsMediaPlayer] | None = None,
+    config: InputLinkConfig,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Update input name from entity state and notify entities."""
-    # Support both old (individual params) and new (dataclass) calling conventions
-    if isinstance(input_names, InputLinkConfig):
-        config = input_names
-    else:
-        if entities is None:
-            msg = "Must provide entities when using individual parameters"
-            raise TypeError(msg)
-        config = InputLinkConfig(
-            input_links_opt={},  # Not needed for this function
-            active_inputs=[],  # Not needed for this function
-            input_names=input_names,
-            entities=entities,
-        )
-
     if state_getter is None:
 
         def state_getter(h: HomeAssistant, eid: str) -> State | None:
@@ -131,30 +116,11 @@ def _update_input_name_from_state(
 @callback
 def _create_input_link_handler(
     hass: HomeAssistant,
-    input_links_opt: dict[str, str] | InputLinkConfig,
-    active_inputs: list[int] | None = None,
-    input_names: dict[int, str] | None = None,
-    entities: list[TriadAmsMediaPlayer] | None = None,
+    config: InputLinkConfig,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> Any:
     """Create callback handler for input link state changes."""
-    # Support both old (individual params) and new (dataclass) calling conventions
-    if isinstance(input_links_opt, InputLinkConfig):
-        config = input_links_opt
-    else:
-        if active_inputs is None or input_names is None or entities is None:
-            msg = (
-                "Must provide active_inputs, input_names, and entities "
-                "when using individual parameters"
-            )
-            raise TypeError(msg)
-        config = InputLinkConfig(
-            input_links_opt=input_links_opt,
-            active_inputs=active_inputs,
-            input_names=input_names,
-            entities=entities,
-        )
 
     @callback
     def _handle_input_link_state_change(event: Any) -> None:
@@ -190,31 +156,11 @@ def _create_input_link_handler(
 def _setup_input_link_subscriptions(
     hass: HomeAssistant,
     coordinator: Any,
-    input_links_opt: dict[str, str] | InputLinkConfig,
-    active_inputs: list[int] | None = None,
-    input_names: dict[int, str] | None = None,
-    entities: list[TriadAmsMediaPlayer] | None = None,
+    config: InputLinkConfig,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Set up subscriptions to linked entity state changes."""
-    # Support both old (individual params) and new (dataclass) calling conventions
-    if isinstance(input_links_opt, InputLinkConfig):
-        config = input_links_opt
-    else:
-        if active_inputs is None or input_names is None or entities is None:
-            msg = (
-                "Must provide active_inputs, input_names, and entities "
-                "when using individual parameters"
-            )
-            raise TypeError(msg)
-        config = InputLinkConfig(
-            input_links_opt=input_links_opt,
-            active_inputs=active_inputs,
-            input_names=input_names,
-            entities=entities,
-        )
-
     linked_entity_ids = [ent_id for ent_id in config.input_links_opt.values() if ent_id]
     if not linked_entity_ids:
         return
@@ -223,16 +169,25 @@ def _setup_input_link_subscriptions(
     unsub = async_track_state_change_event(hass, linked_entity_ids, handler)
 
     # Store unsubscribe function to clean up on unload
-    # Support both new public API and old direct access for backward compatibility
     # Check if it's a real TriadCoordinator instance (not a mock)
     if isinstance(coordinator, TriadCoordinator):
         coordinator.add_input_link_unsub(unsub)
     else:
-        # Fallback for mocks or old code - direct access
-        # Access private member for mocks only
-        if not hasattr(coordinator, "_input_link_unsubs"):
-            coordinator._input_link_unsubs = []  # noqa: SLF001
-        coordinator._input_link_unsubs.append(unsub)  # noqa: SLF001
+        # Mock fallback - try to use input_link_unsubs property first
+        # Use getattr to get the actual value, not MagicMock's auto-created attribute
+        unsubs = getattr(coordinator, "input_link_unsubs", None)
+        if isinstance(unsubs, list):
+            unsubs.append(unsub)
+        elif hasattr(coordinator, "add_input_link_unsub"):
+            # Try the public API method if available
+            try:
+                coordinator.add_input_link_unsub(unsub)
+            except (AttributeError, TypeError):
+                # Method doesn't work, fall back to setting the list
+                coordinator.input_link_unsubs = [unsub]
+        else:
+            # No public API available, set it directly
+            coordinator.input_link_unsubs = [unsub]
 
     # Check immediately for any entities that might have become available
     for i in config.active_inputs:

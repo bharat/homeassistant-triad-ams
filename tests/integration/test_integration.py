@@ -5,7 +5,10 @@ import socket
 
 import pytest
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.integration.simulator import TriadAmsSimulator
 
@@ -233,9 +236,14 @@ class TestTriadAmsIntegration:
         simulator = TriadAmsSimulator("127.0.0.1", test_port, 8, 8)
         try:
             host, port = await simulator.start()
-            coordinator = TriadCoordinator(
-                host, port, 8, min_send_interval=0.01, poll_interval=1.0
+            config = TriadCoordinatorConfig(
+                host=host,
+                port=port,
+                input_count=8,
+                min_send_interval=0.01,
+                poll_interval=1.0,
             )
+            coordinator = TriadCoordinator(config)
             await coordinator.start()
 
             try:

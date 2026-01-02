@@ -7,7 +7,10 @@ import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 
 # Import repair module directly
 try:
@@ -45,14 +48,14 @@ def mock_connection_repair() -> MagicMock:
 @pytest.fixture
 def coordinator_repair(mock_connection_repair: MagicMock) -> TriadCoordinator:
     """Create a coordinator for repair tests."""
-    return TriadCoordinator(
-        "192.168.1.100",
-        52000,
-        8,
+    config = TriadCoordinatorConfig(
+        host="192.168.1.100",
+        port=52000,
+        input_count=8,
         min_send_interval=0.01,
         poll_interval=0.1,
-        connection=mock_connection_repair,
     )
+    return TriadCoordinator(config, connection=mock_connection_repair)
 
 
 class TestRepairIssues:

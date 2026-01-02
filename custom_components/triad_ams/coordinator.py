@@ -53,32 +53,16 @@ class TriadCoordinator:
 
     def __init__(
         self,
-        host: str | TriadCoordinatorConfig,
-        port: int | None = None,
-        input_count: int | None = None,
+        config: TriadCoordinatorConfig,
         *,
-        min_send_interval: float = 0.15,
-        poll_interval: float = 30.0,
         connection: TriadConnection | None = None,
     ) -> None:
         """Initialize a paced, single-worker queue."""
-        # Support both old (individual params) and new (config dataclass) conventions
-        if isinstance(host, TriadCoordinatorConfig):
-            config = host
-            host_val = config.host
-            port_val = config.port
-            input_count_val = config.input_count
-            min_send_interval = config.min_send_interval
-            poll_interval = config.poll_interval
-        else:
-            if port is None or input_count is None:
-                msg = (
-                    "Must provide port and input_count when using individual parameters"
-                )
-                raise TypeError(msg)
-            host_val = host
-            port_val = port
-            input_count_val = input_count
+        host_val = config.host
+        port_val = config.port
+        input_count_val = config.input_count
+        min_send_interval = config.min_send_interval
+        poll_interval = config.poll_interval
 
         self._host = host_val
         self._port = port_val
@@ -301,17 +285,21 @@ class TriadCoordinator:
                             active.discard(target.number)
                             if len(active) == 0:
                                 await self.set_trigger_zone(zone=zone, on=False)
-                    except Exception:  # noqa: BLE001
-                        # Catch all exceptions to prevent one error from breaking
+                    except (OSError, ValueError, KeyError, AttributeError):
+                        # Catch specific exceptions to prevent one error from breaking
                         # polling. This is a debug-level handler where we want to
                         # continue polling
                         _LOGGER.debug("Failed to reconcile zone sets after refresh")
                 except asyncio.CancelledError:
                     # Task was cancelled during refresh, propagate immediately
                     raise
+                except (OSError, TimeoutError, ValueError, KeyError) as e:
+                    # Catch specific exceptions to prevent one error from breaking
+                    # polling. This is a debug-level handler where we want to continue
+                    _LOGGER.debug("Rolling poll refresh failed for output: %s", e)
                 except Exception:  # noqa: BLE001
-                    # Catch all exceptions to prevent one error from breaking polling
-                    # This is a debug-level handler where we want to continue polling
+                    # Catch any other exceptions (e.g., from test mocks) to prevent
+                    # polling from breaking. This is a debug-level handler.
                     _LOGGER.debug("Rolling poll refresh failed for output")
                 await asyncio.sleep(self._poll_interval)
         except asyncio.CancelledError:

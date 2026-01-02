@@ -4,7 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.triad_ams.coordinator import TriadCoordinator
+from custom_components.triad_ams.coordinator import (
+    TriadCoordinator,
+    TriadCoordinatorConfig,
+)
 
 
 class TestTriadCoordinatorSilverAvailability:
@@ -12,9 +15,8 @@ class TestTriadCoordinatorSilverAvailability:
 
     def test_coordinator_is_available_initial(self, mock_connection: MagicMock) -> None:
         """Test coordinator starts as available."""
-        coordinator = TriadCoordinator(
-            "192.168.1.100", 52000, 8, connection=mock_connection
-        )
+        config = TriadCoordinatorConfig(host="192.168.1.100", port=52000, input_count=8)
+        coordinator = TriadCoordinator(config, connection=mock_connection)
 
         # This test will fail until we implement is_available() property
         assert hasattr(coordinator, "is_available")
@@ -25,14 +27,14 @@ class TestTriadCoordinatorSilverAvailability:
         self, mock_connection: MagicMock
     ) -> None:
         """Test coordinator becomes unavailable after network exception."""
-        coordinator = TriadCoordinator(
-            "192.168.1.100",
-            52000,
-            8,
+        config = TriadCoordinatorConfig(
+            host="192.168.1.100",
+            port=52000,
+            input_count=8,
             min_send_interval=0.01,
             poll_interval=0.1,
-            connection=mock_connection,
         )
+        coordinator = TriadCoordinator(config, connection=mock_connection)
 
         await coordinator.start()
 
@@ -52,14 +54,14 @@ class TestTriadCoordinatorSilverAvailability:
         self, mock_connection: MagicMock
     ) -> None:
         """Test coordinator becomes available after successful reconnection."""
-        coordinator = TriadCoordinator(
-            "192.168.1.100",
-            52000,
-            8,
+        config = TriadCoordinatorConfig(
+            host="192.168.1.100",
+            port=52000,
+            input_count=8,
             min_send_interval=0.01,
             poll_interval=0.1,
-            connection=mock_connection,
         )
+        coordinator = TriadCoordinator(config, connection=mock_connection)
 
         await coordinator.start()
 
@@ -82,14 +84,14 @@ class TestTriadCoordinatorSilverAvailability:
         self, mock_connection: MagicMock
     ) -> None:
         """Test availability listeners are notified when state changes."""
-        coordinator = TriadCoordinator(
-            "192.168.1.100",
-            52000,
-            8,
+        config = TriadCoordinatorConfig(
+            host="192.168.1.100",
+            port=52000,
+            input_count=8,
             min_send_interval=0.01,
             poll_interval=0.1,
-            connection=mock_connection,
         )
+        coordinator = TriadCoordinator(config, connection=mock_connection)
 
         await coordinator.start()
 
