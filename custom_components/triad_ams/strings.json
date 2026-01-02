@@ -17,11 +17,5 @@
     "input_not_active": {
       "message": "Input {input} is not active"
     }
-  },
-  "repairs": {
-    "device_unavailable": {
-      "title": "Triad AMS device unavailable",
-      "description": "The Triad AMS device ({entry_title}) is currently unavailable. Please check the network connection and device power."
-    }
   }
 }
