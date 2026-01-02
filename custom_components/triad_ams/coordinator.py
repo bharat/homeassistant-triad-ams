@@ -37,25 +37,56 @@ class _Command:
     future: asyncio.Future
 
 
+@dataclass
+class TriadCoordinatorConfig:
+    """Configuration for TriadCoordinator initialization."""
+
+    host: str
+    port: int
+    input_count: int
+    min_send_interval: float = 0.15
+    poll_interval: float = 30.0
+
+
 class TriadCoordinator:
     """Single-queue, single-worker command coordinator."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
-        host: str,
-        port: int,
-        input_count: int,
+        host: str | TriadCoordinatorConfig,
+        port: int | None = None,
+        input_count: int | None = None,
         *,
         min_send_interval: float = 0.15,
         poll_interval: float = 30.0,
         connection: TriadConnection | None = None,
     ) -> None:
         """Initialize a paced, single-worker queue."""
-        self._host = host
-        self._port = port
-        self._input_count = input_count
+        # Support both old (individual params) and new (config dataclass) conventions
+        if isinstance(host, TriadCoordinatorConfig):
+            config = host
+            host_val = config.host
+            port_val = config.port
+            input_count_val = config.input_count
+            min_send_interval = config.min_send_interval
+            poll_interval = config.poll_interval
+        else:
+            if port is None or input_count is None:
+                msg = (
+                    "Must provide port and input_count when using individual parameters"
+                )
+                raise TypeError(msg)
+            host_val = host
+            port_val = port
+            input_count_val = input_count
+
+        self._host = host_val
+        self._port = port_val
+        self._input_count = input_count_val
         self._conn = (
-            connection if connection is not None else TriadConnection(host, port)
+            connection
+            if connection is not None
+            else TriadConnection(host_val, port_val)
         )
         self._queue: asyncio.Queue[_Command] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
@@ -74,11 +105,33 @@ class TriadCoordinator:
         self._availability_listeners: weakref.WeakSet[Callable[[bool], None]] = (
             weakref.WeakSet()
         )
+        # Track input link unsubscribe functions for cleanup
+        self._input_link_unsubs: list[Callable[[], None]] = []
+
+    @property
+    def input_link_unsubs(self) -> list[Callable[[], None]]:
+        """Return the list of input link unsubscribe functions."""
+        return self._input_link_unsubs
 
     @property
     def input_count(self) -> int:
         """Public accessor for the configured input count."""
         return self._input_count
+
+    @property
+    def host(self) -> str:
+        """Return the host address of the coordinator."""
+        return self._host
+
+    @property
+    def port(self) -> int:
+        """Return the port number of the coordinator."""
+        return self._port
+
+    @property
+    def outputs(self) -> weakref.WeakSet[TriadAmsOutput]:
+        """Return the weak set of registered outputs."""
+        return self._outputs
 
     @property
     def is_available(self) -> bool:
@@ -100,6 +153,14 @@ class TriadCoordinator:
                 self._availability_listeners.discard(callback)
 
         return _unsub
+
+    def add_input_link_unsub(self, unsub: Callable[[], None]) -> None:
+        """Register an input link unsubscribe function for cleanup."""
+        self._input_link_unsubs.append(unsub)
+
+    def clear_input_link_unsubs(self) -> None:
+        """Clear all input link unsubscribe functions."""
+        self._input_link_unsubs.clear()
 
     def _notify_availability_listeners(self, *, is_available: bool) -> None:
         """Notify all listeners of availability change."""
@@ -198,7 +259,7 @@ class TriadCoordinator:
                         self._available = True
                         _LOGGER.info("Triad AMS device available")
                         self._notify_availability_listeners(is_available=True)
-                except Exception as reconnect_exc:  # noqa: BLE001 - log and proceed
+                except (TimeoutError, OSError) as reconnect_exc:
                     _LOGGER.warning(
                         "Reconnect attempt failed (will retry on next command): %s",
                         reconnect_exc,
@@ -241,11 +302,16 @@ class TriadCoordinator:
                             if len(active) == 0:
                                 await self.set_trigger_zone(zone=zone, on=False)
                     except Exception:  # noqa: BLE001
+                        # Catch all exceptions to prevent one error from breaking
+                        # polling. This is a debug-level handler where we want to
+                        # continue polling
                         _LOGGER.debug("Failed to reconcile zone sets after refresh")
                 except asyncio.CancelledError:
                     # Task was cancelled during refresh, propagate immediately
                     raise
                 except Exception:  # noqa: BLE001
+                    # Catch all exceptions to prevent one error from breaking polling
+                    # This is a debug-level handler where we want to continue polling
                     _LOGGER.debug("Rolling poll refresh failed for output")
                 await asyncio.sleep(self._poll_interval)
         except asyncio.CancelledError:

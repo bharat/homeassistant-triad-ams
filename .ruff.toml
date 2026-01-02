@@ -32,3 +32,11 @@ max-complexity = 25
     "SLF001", # Private member accessed (accessing private members is normal in tests)
     "ARG002", # Unused method argument (pytest fixtures are dependency-injected)
 ]
+# __init__ methods with many parameters are acceptable when using keyword-only args
+"custom_components/triad_ams/coordinator.py" = [
+    "PLR0913", # Too many arguments (7 args with 4 keyword-only is reasonable)
+]
+# Functions with many arguments for backward compatibility
+"custom_components/triad_ams/media_player.py" = [
+    "PLR0913", # Too many arguments (backward compatibility requires many params)
+]

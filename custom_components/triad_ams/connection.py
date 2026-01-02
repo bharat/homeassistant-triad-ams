@@ -9,7 +9,10 @@ import contextlib
 import logging
 import re
 import socket
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from asyncio import StreamReader, StreamWriter
 
 from .const import (
     CONNECTION_TIMEOUT,
@@ -77,7 +80,75 @@ class TriadConnection:
         self._writer = None
         _LOGGER.debug("close_nowait(): cleared reader/writer")
 
-    async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:  # noqa: PLR0915
+    async def _ensure_connection_for_send(self) -> None:
+        """Ensure connection is established before sending."""
+        if self._writer is None or self._reader is None:
+            _LOGGER.debug("_send_command(): transport missing; calling connect()")
+            await self.connect()
+
+    async def _write_command_bytes(
+        self, writer: "StreamWriter", command: bytes
+    ) -> None:
+        """Write command bytes to the connection."""
+        _LOGGER.debug("Sending raw bytes: %s", command.hex())
+        _LOGGER.debug("_send_command(): writing %d bytes", len(command))
+        writer.write(command)
+        _LOGGER.debug("_send_command(): before drain()")
+        await writer.drain()
+        _LOGGER.debug("_send_command(): after drain()")
+        # Add a very small delay for device tolerance
+        await asyncio.sleep(DEVICE_COMMAND_DELAY)
+
+    async def _read_response_bytes(self, reader: "StreamReader") -> bytes:
+        """Read response bytes from the connection."""
+        _LOGGER.debug("_send_command(): awaiting response")
+        # Check connection state before reading - if closed, fail immediately
+        if self._reader is None or self._writer is None:
+            msg = "Connection closed"
+            raise OSError(msg)
+        try:
+            response = await asyncio.wait_for(
+                reader.readuntil(b"\x00"), timeout=CONNECTION_TIMEOUT
+            )
+        except (
+            asyncio.CancelledError,
+            ConnectionResetError,
+            BrokenPipeError,
+            asyncio.IncompleteReadError,
+        ):
+            # If cancelled or connection was closed, check state and raise
+            # appropriate error
+            if self._reader is None or self._writer is None:
+                msg = "Connection closed"
+                raise OSError(msg) from None
+            # Re-raise the original exception
+            raise
+        except OSError:
+            # Re-raise OSError as-is (might be from socket shutdown)
+            raise
+        _LOGGER.debug("_send_command(): received %d bytes", len(response))
+        _LOGGER.debug("Raw response: %r", response)
+        return response
+
+    def _validate_response(
+        self, text: str, _expect: str | None, command: bytes
+    ) -> None:
+        """Validate response text against expected pattern."""
+        # Detect device-side command error or protocol desync (nulls)
+        if text == "" or re.search(r"^command\s+error$", text, re.IGNORECASE):
+            _LOGGER.warning(
+                "Device returned error/empty response for command: %s; "
+                "resetting connection",
+                command.hex(),
+            )
+            # Proactively drop the connection without blocking
+            _LOGGER.debug("_send_command(): before close_nowait() on error")
+            self.close_nowait()
+            _LOGGER.debug("_send_command(): after close_nowait() on error")
+            msg = "Triad command error or empty response"
+            raise OSError(msg)
+
+    async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:
         """
         Send a command and return the response string.
 
@@ -87,48 +158,12 @@ class TriadConnection:
         _LOGGER.debug("_send_command(): waiting for lock")
         async with self._lock:
             _LOGGER.debug("_send_command(): acquired lock")
-            # Check if connection was closed (e.g., by coordinator.stop())
-            if self._writer is None or self._reader is None:
-                _LOGGER.debug("_send_command(): transport missing; calling connect()")
-                await self.connect()
+            await self._ensure_connection_for_send()
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
             reader = cast("asyncio.StreamReader", self._reader)
-            _LOGGER.debug("Sending raw bytes: %s", command.hex())
-            _LOGGER.debug("_send_command(): writing %d bytes", len(command))
-            writer.write(command)
-            _LOGGER.debug("_send_command(): before drain()")
-            await writer.drain()
-            _LOGGER.debug("_send_command(): after drain()")
-            # Add a very small delay for device tolerance
-            await asyncio.sleep(DEVICE_COMMAND_DELAY)
-            _LOGGER.debug("_send_command(): awaiting response")
-            # Check connection state before reading - if closed, fail immediately
-            if self._reader is None or self._writer is None:
-                msg = "Connection closed"
-                raise OSError(msg)
-            try:
-                response = await asyncio.wait_for(
-                    reader.readuntil(b"\x00"), timeout=CONNECTION_TIMEOUT
-                )
-            except (
-                asyncio.CancelledError,
-                ConnectionResetError,
-                BrokenPipeError,
-                asyncio.IncompleteReadError,
-            ):
-                # If cancelled or connection was closed, check state and raise
-                # appropriate error
-                if self._reader is None or self._writer is None:
-                    msg = "Connection closed"
-                    raise OSError(msg) from None
-                # Re-raise the original exception
-                raise
-            except OSError:
-                # Re-raise OSError as-is (might be from socket shutdown)
-                raise
-            _LOGGER.debug("_send_command(): received %d bytes", len(response))
-            _LOGGER.debug("Raw response: %r", response)
+            await self._write_command_bytes(writer, command)
+            response = await self._read_response_bytes(reader)
             text = response.decode(errors="replace").strip("\x00").strip()
             # Evaluate the first (and only) frame. If it doesn't match the
             # expected pattern, allow exactly one skip for an unsolicited
@@ -144,9 +179,7 @@ class TriadConnection:
                     re.IGNORECASE,
                 ):
                     _LOGGER.debug("Skipping unsolicited AudioSense event: %s", text)
-                    response = await asyncio.wait_for(
-                        reader.readuntil(b"\x00"), timeout=CONNECTION_TIMEOUT
-                    )
+                    response = await self._read_response_bytes(reader)
                     _LOGGER.debug("Raw response (post-AudioSense): %r", response)
                     text = response.decode(errors="replace").strip("\x00").strip()
                 # After optional skip, if still not matching -> error
@@ -155,19 +188,7 @@ class TriadConnection:
                     self.close_nowait()
                     err_msg = "Unexpected response from device"
                     raise OSError(err_msg)
-            # Detect device-side command error or protocol desync (nulls)
-            if text == "" or re.search(r"^command\s+error$", text, re.IGNORECASE):
-                _LOGGER.warning(
-                    "Device returned error/empty response for command: %s; "
-                    "resetting connection",
-                    command.hex(),
-                )
-                # Proactively drop the connection without blocking
-                _LOGGER.debug("_send_command(): before close_nowait() on error")
-                self.close_nowait()
-                _LOGGER.debug("_send_command(): after close_nowait() on error")
-                msg = "Triad command error or empty response"
-                raise OSError(msg)
+            self._validate_response(text, expect, command)
             return text
 
     async def send_raw(self, command: bytes) -> str:
@@ -375,7 +396,8 @@ class TriadConnection:
         Set a trigger zone on or off.
 
         Args:
-            zone: 1-based trigger zone index (1..3). Default 1 for backwards compatibility.
+            zone: 1-based trigger zone index (1..3).
+                Default 1 for backwards compatibility.
             on: True to enable, False to disable.
 
         Command mapping:
@@ -386,7 +408,7 @@ class TriadConnection:
         The pattern is: FF 55 03 05 <base> <zone-1>
         where <base> is 0x50 for on or 0x51 for off.
 
-        """  # noqa: E501
+        """
         # Normalize zone to 1..3
         zone = max(1, min(zone, 3))
 

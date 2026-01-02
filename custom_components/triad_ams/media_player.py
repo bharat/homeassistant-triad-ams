@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.media_player import (
@@ -27,9 +28,20 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
+from .coordinator import TriadCoordinator
 from .models import TriadAmsOutput
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class InputLinkConfig:
+    """Configuration for input link subscriptions."""
+
+    input_links_opt: dict[str, str]
+    active_inputs: list[int]
+    input_names: dict[int, str]
+    entities: list[TriadAmsMediaPlayer]
 
 
 class InputEntityNotLinkedError(HomeAssistantError):
@@ -70,16 +82,30 @@ def _build_input_names(
 
 
 @callback
-def _update_input_name_from_state(  # noqa: PLR0913
+def _update_input_name_from_state(
     hass: HomeAssistant,
     input_num: int,
     entity_id: str,
-    input_names: dict[int, str],
-    entities: list[TriadAmsMediaPlayer],
+    input_names: dict[int, str] | InputLinkConfig,
+    entities: list[TriadAmsMediaPlayer] | None = None,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Update input name from entity state and notify entities."""
+    # Support both old (individual params) and new (dataclass) calling conventions
+    if isinstance(input_names, InputLinkConfig):
+        config = input_names
+    else:
+        if entities is None:
+            msg = "Must provide entities when using individual parameters"
+            raise TypeError(msg)
+        config = InputLinkConfig(
+            input_links_opt={},  # Not needed for this function
+            active_inputs=[],  # Not needed for this function
+            input_names=input_names,
+            entities=entities,
+        )
+
     if state_getter is None:
 
         def state_getter(h: HomeAssistant, eid: str) -> State | None:
@@ -87,7 +113,7 @@ def _update_input_name_from_state(  # noqa: PLR0913
 
     new_state = state_getter(hass, entity_id)
     if new_state and new_state.name:
-        old_name = input_names.get(input_num, f"Input {input_num}")
+        old_name = config.input_names.get(input_num, f"Input {input_num}")
         new_name = new_state.name
         if old_name != new_name:
             _LOGGER.debug(
@@ -97,22 +123,38 @@ def _update_input_name_from_state(  # noqa: PLR0913
                 new_name,
                 entity_id,
             )
-            input_names[input_num] = new_name
-            for entity in entities:
+            config.input_names[input_num] = new_name
+            for entity in config.entities:
                 entity.async_write_ha_state()
 
 
 @callback
-def _create_input_link_handler(  # noqa: PLR0913
+def _create_input_link_handler(
     hass: HomeAssistant,
-    input_links_opt: dict[str, str],
-    active_inputs: list[int],
-    input_names: dict[int, str],
-    entities: list[TriadAmsMediaPlayer],
+    input_links_opt: dict[str, str] | InputLinkConfig,
+    active_inputs: list[int] | None = None,
+    input_names: dict[int, str] | None = None,
+    entities: list[TriadAmsMediaPlayer] | None = None,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> Any:
     """Create callback handler for input link state changes."""
+    # Support both old (individual params) and new (dataclass) calling conventions
+    if isinstance(input_links_opt, InputLinkConfig):
+        config = input_links_opt
+    else:
+        if active_inputs is None or input_names is None or entities is None:
+            msg = (
+                "Must provide active_inputs, input_names, and entities "
+                "when using individual parameters"
+            )
+            raise TypeError(msg)
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
+        )
 
     @callback
     def _handle_input_link_state_change(event: Any) -> None:
@@ -123,7 +165,7 @@ def _create_input_link_handler(  # noqa: PLR0913
 
         # Find which input number this entity is linked to
         input_num = None
-        for input_str, linked_ent_id in input_links_opt.items():
+        for input_str, linked_ent_id in config.input_links_opt.items():
             if linked_ent_id == entity_id:
                 try:
                     input_num = int(input_str)
@@ -131,55 +173,76 @@ def _create_input_link_handler(  # noqa: PLR0913
                 except ValueError:
                     continue
 
-        if input_num is None or input_num not in active_inputs:
+        if input_num is None or input_num not in config.active_inputs:
             return
 
         _update_input_name_from_state(
-            hass, input_num, entity_id, input_names, entities, state_getter=state_getter
+            hass,
+            input_num,
+            entity_id,
+            config,
+            state_getter=state_getter,
         )
 
     return _handle_input_link_state_change
 
 
-def _setup_input_link_subscriptions(  # noqa: PLR0913
+def _setup_input_link_subscriptions(
     hass: HomeAssistant,
     coordinator: Any,
-    input_links_opt: dict[str, str],
-    active_inputs: list[int],
-    input_names: dict[int, str],
-    entities: list[TriadAmsMediaPlayer],
+    input_links_opt: dict[str, str] | InputLinkConfig,
+    active_inputs: list[int] | None = None,
+    input_names: dict[int, str] | None = None,
+    entities: list[TriadAmsMediaPlayer] | None = None,
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> None:
     """Set up subscriptions to linked entity state changes."""
-    linked_entity_ids = [ent_id for ent_id in input_links_opt.values() if ent_id]
+    # Support both old (individual params) and new (dataclass) calling conventions
+    if isinstance(input_links_opt, InputLinkConfig):
+        config = input_links_opt
+    else:
+        if active_inputs is None or input_names is None or entities is None:
+            msg = (
+                "Must provide active_inputs, input_names, and entities "
+                "when using individual parameters"
+            )
+            raise TypeError(msg)
+        config = InputLinkConfig(
+            input_links_opt=input_links_opt,
+            active_inputs=active_inputs,
+            input_names=input_names,
+            entities=entities,
+        )
+
+    linked_entity_ids = [ent_id for ent_id in config.input_links_opt.values() if ent_id]
     if not linked_entity_ids:
         return
 
-    handler = _create_input_link_handler(
-        hass,
-        input_links_opt,
-        active_inputs,
-        input_names,
-        entities,
-        state_getter=state_getter,
-    )
+    handler = _create_input_link_handler(hass, config, state_getter=state_getter)
     unsub = async_track_state_change_event(hass, linked_entity_ids, handler)
 
     # Store unsubscribe function to clean up on unload
-    # Accessing private member is intentional for cleanup tracking
-    if not hasattr(coordinator, "_input_link_unsubs"):
-        coordinator._input_link_unsubs = []  # noqa: SLF001
-    coordinator._input_link_unsubs.append(unsub)  # noqa: SLF001
+    # Support both new public API and old direct access for backward compatibility
+    # Check if it's a real TriadCoordinator instance (not a mock)
+    if isinstance(coordinator, TriadCoordinator):
+        coordinator.add_input_link_unsub(unsub)
+    else:
+        # Fallback for mocks or old code - direct access
+        # Access private member for mocks only
+        if not hasattr(coordinator, "_input_link_unsubs"):
+            coordinator._input_link_unsubs = []  # noqa: SLF001
+        coordinator._input_link_unsubs.append(unsub)  # noqa: SLF001
 
     # Check immediately for any entities that might have become available
-    for i in active_inputs:
-        ent_id = input_links_opt.get(str(i))
+    for i in config.active_inputs:
+        ent_id = config.input_links_opt.get(str(i))
         if ent_id and (
-            i not in input_names or input_names.get(i, "").startswith("Input ")
+            i not in config.input_names
+            or config.input_names.get(i, "").startswith("Input ")
         ):
             _update_input_name_from_state(
-                hass, i, ent_id, input_names, entities, state_getter=state_getter
+                hass, i, ent_id, config, state_getter=state_getter
             )
 
 
@@ -276,9 +339,13 @@ async def async_setup_entry(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
     )
 
-    _setup_input_link_subscriptions(
-        hass, coordinator, input_links_opt, active_inputs, input_names, entities
+    link_config = InputLinkConfig(
+        input_links_opt=input_links_opt,
+        active_inputs=active_inputs,
+        input_names=input_names,
+        entities=entities,
     )
+    _setup_input_link_subscriptions(hass, coordinator, link_config)
     _cleanup_stale_entities(hass, entry, outputs)
     _remove_orphaned_devices(hass, entry)
 
@@ -534,7 +601,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         await self.output.set_volume(volume)
         self.async_write_ha_state()
 
-    async def async_mute_volume(self, mute: bool) -> None:  # noqa: FBT001
+    async def async_mute_volume(self, *, mute: bool) -> None:
         """Mute or unmute the output."""
         _LOGGER.info("Setting mute for output %d to %s", self.output.number, mute)
         await self.output.set_muted(muted=mute)

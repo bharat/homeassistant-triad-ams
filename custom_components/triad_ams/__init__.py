@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from .const import DOMAIN
 from .coordinator import TriadCoordinator
+from .coordinator import TriadCoordinator as TriadCoordinatorType
 
 PLATFORMS = ["media_player"]
 
@@ -109,10 +110,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         coordinator: TriadCoordinator = entry.runtime_data
         # Clean up input link subscriptions
-        if hasattr(coordinator, "_input_link_unsubs"):
-            for unsub in coordinator._input_link_unsubs:  # noqa: SLF001
+        # Support both real TriadCoordinator and mocks
+        if isinstance(coordinator, TriadCoordinatorType):
+            for unsub in coordinator.input_link_unsubs:
                 unsub()
-            coordinator._input_link_unsubs = []  # noqa: SLF001
+            coordinator.clear_input_link_unsubs()
+        else:
+            # Fallback for mocks - direct access
+            unsubs = getattr(
+                coordinator,
+                "_input_link_unsubs",
+                getattr(coordinator, "input_link_unsubs", []),
+            )
+            for unsub in unsubs:
+                unsub()
+            if hasattr(coordinator, "clear_input_link_unsubs"):
+                coordinator.clear_input_link_unsubs()
+            elif hasattr(coordinator, "_input_link_unsubs"):
+                # Access private member for mocks only
+                coordinator._input_link_unsubs.clear()  # noqa: SLF001
         try:
             await coordinator.stop()
         except Exception:

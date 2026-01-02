@@ -57,10 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # (WeakSet will remove it if we don't keep a reference)
     _unsub = coordinator.add_availability_listener(_handle_availability_change)
 
-    # Store unsubscribe function on config_entry to keep callback alive
-    if not hasattr(config_entry, "_triad_ams_repair_unsubs"):
-        config_entry._triad_ams_repair_unsubs = []  # noqa: SLF001
-    config_entry._triad_ams_repair_unsubs.append(_unsub)  # noqa: SLF001
+    # Use Home Assistant's built-in cleanup mechanism
+    config_entry.async_on_unload(_unsub)
 
     # Check initial state
     if not coordinator.is_available:

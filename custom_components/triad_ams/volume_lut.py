@@ -130,7 +130,9 @@ def db_for_step(step: int) -> float:
         msg = "step must be in 1..100"
         raise ValueError(msg)
     val = STEP_TO_DB[step]
-    assert val is not None  # noqa: S101
+    if val is None:
+        msg = f"Unexpected None value for step {step}"
+        raise RuntimeError(msg)
     return float(val)
 
 
