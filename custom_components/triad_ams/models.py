@@ -217,7 +217,11 @@ class TriadAmsInput:
     """
 
     def __init__(
-        self, number: int, name: str, linked_entity_id: str | None = None
+        self,
+        number: int,
+        name: str,
+        coordinator: TriadCoordinator,
+        linked_entity_id: str | None = None,
     ) -> None:
         """
         Create an input model.
@@ -225,12 +229,14 @@ class TriadAmsInput:
         Args:
             number: 1-based input number.
             name: Friendly name.
+            coordinator: Coordinator for availability tracking.
             linked_entity_id: Optional linked `media_player` entity id.
 
         """
         self.number = number
         self.name = name
         self.linked_entity_id = linked_entity_id
+        self.coordinator = coordinator
 
     def set_link(self, entity_id: str | None) -> None:
         """Set or clear the linked entity id."""

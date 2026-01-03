@@ -324,10 +324,8 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                     blocking=True,
                 )
 
-        # Update group members list
-        self._group_members = [
-            m for m in group_members if m not in self._group_members
-        ] + self._group_members
+        # Replace the group members list (don't merge)
+        self._group_members = list(group_members)
         self.async_write_ha_state()
 
     # The unjoin operation lives on member entities (TriadAmsMediaPlayer).

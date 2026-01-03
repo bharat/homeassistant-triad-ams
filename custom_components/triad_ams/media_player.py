@@ -88,10 +88,16 @@ def _build_inputs(
     active_inputs: list[int],
     input_names: dict[int, str],
     input_links_opt: dict[str, str],
+    coordinator: TriadCoordinator,
 ) -> list[TriadAmsInput]:
     """Build input models."""
     return [
-        TriadAmsInput(i, input_names.get(i, f"Input {i}"), input_links_opt.get(str(i)))
+        TriadAmsInput(
+            i,
+            input_names.get(i, f"Input {i}"),
+            coordinator,
+            input_links_opt.get(str(i)),
+        )
         for i in sorted(active_inputs)
     ]
 
@@ -358,7 +364,7 @@ async def async_setup_entry(
     input_links_opt: dict[str, str] = entry.options.get("input_links", {})
 
     input_names = _build_input_names(hass, active_inputs, input_links_opt)
-    inputs = _build_inputs(active_inputs, input_names, input_links_opt)
+    inputs = _build_inputs(active_inputs, input_names, input_links_opt, coordinator)
     outputs = _build_outputs(active_outputs, coordinator, input_names)
 
     try:
