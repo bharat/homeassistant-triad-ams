@@ -70,6 +70,8 @@ from homeassistant.components.media_player import (
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
 
 if TYPE_CHECKING:
@@ -143,6 +145,10 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         self._attr_name = input_model.name
         self._attr_has_entity_name = True
         self._attr_device_class = MediaPlayerDeviceClass.RECEIVER
+        # Gold requirement: entity category
+        self._attr_entity_category = EntityCategory.CONFIG
+        # Gold requirement: entity disabled by default
+        self._attr_entity_registry_enabled_default = RegistryEntryDisabler.USER
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": entry.title,
@@ -320,10 +326,8 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
         # Subscribe to coordinator availability changes (Silver requirement)
         if hasattr(self.input, "coordinator") and self.input.coordinator is not None:
-            self._availability_unsub = (
-                self.input.coordinator.register_availability_listener(
-                    self._update_availability
-                )
+            self._availability_unsub = self.input.coordinator.add_availability_listener(
+                self._update_availability
             )
 
     async def async_will_remove_from_hass(self) -> None:
