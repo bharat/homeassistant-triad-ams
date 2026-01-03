@@ -335,6 +335,196 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             self._availability_unsub()
             self._availability_unsub = None
 
+    async def async_get_joinable_group_members(self) -> list[str]:
+        """
+        Return all output entities that can join this input.
+
+        Joinable members include:
+        1. All Triad AMS output entities that are:
+           - Not linked to any input, OR
+           - Linked to the current input entity
+        2. Platform entities from the linked player entity (if supported)
+
+        If the linked entity supports GROUPING and implements
+        async_get_joinable_group_members, its response is used directly.
+        Otherwise, platform entities are discovered by filtering the
+        entity registry for matching domain and speaker device_class.
+
+        This enables callers to determine which outputs can be routed
+        to play this input's audio, either through hardware routing
+        (Triad outputs) or software grouping (linked platform outputs).
+
+        Returns:
+            List of entity IDs that can join this input.
+            Returns empty list if entity_id is not set.
+
+        Example:
+            Input linked to Sonos speaker at
+            media_player.sonos_living_room:
+
+            - Returns all unlinked Triad outputs
+            - Returns all Triad outputs linked to this input
+            - Returns Sonos speakers from linked entity's grouping response
+              (or manual discovery if linked entity lacks the method)
+
+        """
+        if not self.entity_id or self.hass is None:
+            return []
+
+        joinable = []
+        registry = er.async_get(self.hass)
+
+        # Get all Triad AMS output entities
+        triad_outputs = [
+            entry.entity_id
+            for entry in registry.entities.values()
+            if entry.platform == DOMAIN
+            and entry.domain == "media_player"
+            and entry.entity_id != self.entity_id  # Exclude self
+        ]
+
+        # Filter outputs: not linked or linked to this input
+        for output_id in triad_outputs:
+            state = self.hass.states.get(output_id)
+            if not state:
+                continue
+
+            # Only include outputs with speaker device_class
+            if state.attributes.get("device_class") != MediaPlayerDeviceClass.SPEAKER:
+                continue
+
+            # Get the linked input for this output (if any)
+            linked_input = state.attributes.get("linked_input_entity_id")
+            if linked_input is None or linked_input == self.entity_id:
+                joinable.append(output_id)
+
+        # Add platform entities from linked player if available
+        if self.input.linked_entity_id:
+            linked_state = self.hass.states.get(self.input.linked_entity_id)
+            if linked_state:
+                # Only proceed if linked entity supports GROUPING feature
+                supported_features = linked_state.attributes.get(
+                    "supported_features", 0
+                )
+                if not (supported_features & MediaPlayerEntityFeature.GROUPING):
+                    return joinable
+
+                # Try to use linked entity's async_get_joinable_group_members
+                # if available
+                platform_entities = await self._get_linked_joinable_members()
+                if platform_entities is not None:
+                    joinable.extend(platform_entities)
+                else:
+                    # Fallback: manually discover platform entities
+                    joinable.extend(await self._discover_platform_entities(registry))
+
+        return joinable
+
+    async def _get_linked_joinable_members(self) -> list[str] | None:
+        """
+        Try to get joinable members from linked entity's service method.
+
+        If the linked entity implements async_get_joinable_group_members,
+        call it and return the result. Otherwise, return None to trigger
+        manual discovery.
+
+        Returns:
+            List of entity_ids if linked entity supports the method,
+            None if method is not available.
+
+        """
+        if not self.input.linked_entity_id or self.hass is None:
+            return None
+
+        try:
+            # Try to get the entity object from entity registry
+            registry = er.async_get(self.hass)
+            entry = registry.async_get(self.input.linked_entity_id)
+            if not entry:
+                return None
+
+            # Get the entity object from the platform (entity_id -> entity object)
+            # This requires accessing the entity registry's internal entities
+            entity_id = self.input.linked_entity_id
+            entity = None
+
+            # Try to find entity in hass.data if it's available
+            # Different platforms store entities differently
+            for domain_data in self.hass.data.values():
+                if isinstance(domain_data, dict):
+                    for item in domain_data.values():
+                        if hasattr(item, "entity_id") and item.entity_id == entity_id:
+                            entity = item
+                            break
+                if entity:
+                    break
+
+            if entity and hasattr(entity, "async_get_joinable_group_members"):
+                result = await entity.async_get_joinable_group_members()
+                _LOGGER.debug(
+                    "%s - Got joinable members from linked entity: %s",
+                    self._attr_name,
+                    result,
+                )
+                return result if isinstance(result, list) else None
+
+        except Exception:
+            _LOGGER.exception(
+                "Error calling async_get_joinable_group_members on linked entity %s",
+                self.input.linked_entity_id,
+            )
+
+        return None
+
+    async def _discover_platform_entities(
+        self, registry: er.EntityRegistry
+    ) -> list[str]:
+        """
+        Discover platform entities by filtering entity registry.
+
+        Get all media_player entities from the same platform as the
+        linked entity, filtering for speaker device_class only.
+
+        Args:
+            registry: Entity registry instance.
+
+        Returns:
+            List of entity_ids matching platform and device_class.
+
+        """
+        platform_entities = []
+
+        if not self.input.linked_entity_id or self.hass is None:
+            return platform_entities
+
+        # Get platform of linked entity
+        linked_entry = registry.async_get(self.input.linked_entity_id)
+        if not linked_entry:
+            return platform_entities
+
+        linked_domain = linked_entry.platform
+
+        # Find all media_player entities from same platform
+        candidates = [
+            entry.entity_id
+            for entry in registry.entities.values()
+            if entry.platform == linked_domain
+            and entry.domain == "media_player"
+            and entry.entity_id != self.input.linked_entity_id
+        ]
+
+        # Filter for speaker device_class
+        for entity_id in candidates:
+            entity_state = self.hass.states.get(entity_id)
+            if (
+                entity_state
+                and entity_state.attributes.get("device_class")
+                == MediaPlayerDeviceClass.SPEAKER
+            ):
+                platform_entities.append(entity_id)
+
+        return platform_entities
+
     async def async_join_players(self, group_members: list[str]) -> None:
         """
         Route provided output players to this input.

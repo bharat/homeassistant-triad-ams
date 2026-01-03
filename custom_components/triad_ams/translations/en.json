@@ -31,6 +31,10 @@
                     "description": "The media player entity to use as the input source."
                 }
             }
+        },
+        "get_joinable_group_members": {
+            "name": "Get Joinable Group Members",
+            "description": "Get all speaker entities that can join this input for grouping."
         }
     }
 }

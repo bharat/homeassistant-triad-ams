@@ -684,3 +684,414 @@ class TestTriadAmsInputMediaPlayerGrouping:
             exc_info.value.translation_placeholders["entity_id"]
             == "media_player.cast_speaker"
         )
+
+
+class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
+    """Test async_get_joinable_group_members service method."""
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_returns_empty_without_entity_id(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should return empty list if entity_id is not set."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = None
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_returns_empty_without_hass(
+        self, input_media_player: TriadAmsInputMediaPlayer
+    ) -> None:
+        """Should return empty list if hass is not set."""
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.hass = None
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_includes_unlinked_speaker_outputs(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should include all unlinked Triad outputs with speaker device_class."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = None
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output1_entry = MagicMock()
+        output1_entry.entity_id = "media_player.output_1"
+        output1_entry.platform = DOMAIN
+        output1_entry.domain = "media_player"
+
+        output2_entry = MagicMock()
+        output2_entry.entity_id = "media_player.output_2"
+        output2_entry.platform = DOMAIN
+        output2_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "abc": output1_entry,
+            "def": output2_entry,
+        }
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock states with speaker device_class
+        output1_state = MagicMock()
+        output1_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+        output2_state = MagicMock()
+        output2_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.output_1": output1_state,
+                "media_player.output_2": output2_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.output_1" in result
+        assert "media_player.output_2" in result
+        assert "media_player.input_1" not in result  # Exclude self
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_excludes_non_speaker_outputs(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should exclude Triad outputs that are not speakers."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = None
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output1_entry = MagicMock()
+        output1_entry.entity_id = "media_player.output_1"
+        output1_entry.platform = DOMAIN
+        output1_entry.domain = "media_player"
+
+        receiver_entry = MagicMock()
+        receiver_entry.entity_id = "media_player.receiver"
+        receiver_entry.platform = DOMAIN
+        receiver_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "abc": output1_entry,
+            "def": receiver_entry,
+        }
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock states - one speaker, one receiver
+        output1_state = MagicMock()
+        output1_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+        receiver_state = MagicMock()
+        receiver_state.attributes = {
+            "device_class": "receiver",
+            "linked_input_entity_id": None,
+        }
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.output_1": output1_state,
+                "media_player.receiver": receiver_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.output_1" in result
+        assert "media_player.receiver" not in result
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_includes_linked_to_current_input(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should include outputs linked to the current input entity."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = None
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output1_entry = MagicMock()
+        output1_entry.entity_id = "media_player.output_1"
+        output1_entry.platform = DOMAIN
+        output1_entry.domain = "media_player"
+
+        output2_entry = MagicMock()
+        output2_entry.entity_id = "media_player.output_2"
+        output2_entry.platform = DOMAIN
+        output2_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "abc": output1_entry,
+            "def": output2_entry,
+        }
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # output_1 is unlinked, output_2 is linked to input_1
+        output1_state = MagicMock()
+        output1_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+        output2_state = MagicMock()
+        output2_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": "media_player.input_1",
+        }
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.output_1": output1_state,
+                "media_player.output_2": output2_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.output_1" in result
+        assert "media_player.output_2" in result
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_excludes_linked_to_other_inputs(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should exclude outputs linked to other input entities."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = None
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output1_entry = MagicMock()
+        output1_entry.entity_id = "media_player.output_1"
+        output1_entry.platform = DOMAIN
+        output1_entry.domain = "media_player"
+
+        output2_entry = MagicMock()
+        output2_entry.entity_id = "media_player.output_2"
+        output2_entry.platform = DOMAIN
+        output2_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "abc": output1_entry,
+            "def": output2_entry,
+        }
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # output_1 is unlinked, output_2 is linked to input_2
+        output1_state = MagicMock()
+        output1_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+        output2_state = MagicMock()
+        output2_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": "media_player.input_2",
+        }
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.output_1": output1_state,
+                "media_player.output_2": output2_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.output_1" in result
+        assert "media_player.output_2" not in result
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_returns_triad_only_when_linked_lacks_grouping(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should return only Triad outputs when linked entity lacks GROUPING."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = "media_player.no_grouping"
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output1_entry = MagicMock()
+        output1_entry.entity_id = "media_player.output_1"
+        output1_entry.platform = DOMAIN
+        output1_entry.domain = "media_player"
+
+        mock_registry.entities = {"abc": output1_entry}
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock linked state WITHOUT GROUPING feature
+        linked_state = MagicMock()
+        linked_state.attributes = {
+            "device_class": "speaker",
+            "supported_features": 0,  # No GROUPING feature
+        }
+
+        output1_state = MagicMock()
+        output1_state.attributes = {
+            "device_class": "speaker",
+            "linked_input_entity_id": None,
+        }
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.no_grouping": linked_state,
+                "media_player.output_1": output1_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        # Should only include Triad output, no platform entities
+        assert "media_player.output_1" in result
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_includes_platform_entities_from_linked_player(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should include speaker entities from linked player platform."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = "media_player.sonos_main"
+
+        # Mock registry
+        mock_registry = MagicMock()
+        sonos_main_entry = MagicMock()
+        sonos_main_entry.entity_id = "media_player.sonos_main"
+        sonos_main_entry.platform = "sonos"
+        sonos_main_entry.domain = "media_player"
+
+        sonos_speaker1_entry = MagicMock()
+        sonos_speaker1_entry.entity_id = "media_player.sonos_speaker_1"
+        sonos_speaker1_entry.platform = "sonos"
+        sonos_speaker1_entry.domain = "media_player"
+
+        sonos_speaker2_entry = MagicMock()
+        sonos_speaker2_entry.entity_id = "media_player.sonos_speaker_2"
+        sonos_speaker2_entry.platform = "sonos"
+        sonos_speaker2_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "sonos_main": sonos_main_entry,
+            "sonos_1": sonos_speaker1_entry,
+            "sonos_2": sonos_speaker2_entry,
+        }
+
+        def async_get_side_effect(entity_id: str) -> MagicMock | None:
+            return {
+                "media_player.sonos_main": sonos_main_entry,
+            }.get(entity_id)
+
+        mock_registry.async_get = MagicMock(side_effect=async_get_side_effect)
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock states
+        sonos_main_state = MagicMock()
+        sonos_main_state.attributes = {
+            "device_class": "speaker",
+            "supported_features": MediaPlayerEntityFeature.GROUPING,
+        }
+
+        sonos_speaker1_state = MagicMock()
+        sonos_speaker1_state.attributes = {"device_class": "speaker"}
+
+        sonos_speaker2_state = MagicMock()
+        sonos_speaker2_state.attributes = {"device_class": "speaker"}
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.sonos_main": sonos_main_state,
+                "media_player.sonos_speaker_1": sonos_speaker1_state,
+                "media_player.sonos_speaker_2": sonos_speaker2_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.sonos_speaker_1" in result
+        assert "media_player.sonos_speaker_2" in result
+        assert "media_player.sonos_main" not in result  # Exclude linked entity
+
+    @pytest.mark.asyncio
+    async def test_get_joinable_filters_platform_entities_by_speaker_class(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should only include speaker platform entities, not other device classes."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.input.linked_entity_id = "media_player.sonos_main"
+
+        # Mock registry
+        mock_registry = MagicMock()
+        sonos_main_entry = MagicMock()
+        sonos_main_entry.entity_id = "media_player.sonos_main"
+        sonos_main_entry.platform = "sonos"
+        sonos_main_entry.domain = "media_player"
+
+        sonos_speaker_entry = MagicMock()
+        sonos_speaker_entry.entity_id = "media_player.sonos_speaker"
+        sonos_speaker_entry.platform = "sonos"
+        sonos_speaker_entry.domain = "media_player"
+
+        sonos_receiver_entry = MagicMock()
+        sonos_receiver_entry.entity_id = "media_player.sonos_receiver"
+        sonos_receiver_entry.platform = "sonos"
+        sonos_receiver_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "sonos_main": sonos_main_entry,
+            "sonos_speaker": sonos_speaker_entry,
+            "sonos_receiver": sonos_receiver_entry,
+        }
+
+        def async_get_side_effect(entity_id: str) -> MagicMock | None:
+            return {
+                "media_player.sonos_main": sonos_main_entry,
+            }.get(entity_id)
+
+        mock_registry.async_get = MagicMock(side_effect=async_get_side_effect)
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock states - speaker and receiver
+        sonos_main_state = MagicMock()
+        sonos_main_state.attributes = {
+            "device_class": "speaker",
+            "supported_features": MediaPlayerEntityFeature.GROUPING,
+        }
+
+        sonos_speaker_state = MagicMock()
+        sonos_speaker_state.attributes = {"device_class": "speaker"}
+
+        sonos_receiver_state = MagicMock()
+        sonos_receiver_state.attributes = {"device_class": "receiver"}
+
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.sonos_main": sonos_main_state,
+                "media_player.sonos_speaker": sonos_speaker_state,
+                "media_player.sonos_receiver": sonos_receiver_state,
+            }.get(entity_id)
+        )
+
+        result = await input_media_player.async_get_joinable_group_members()
+
+        assert "media_player.sonos_speaker" in result
+        assert "media_player.sonos_receiver" not in result
