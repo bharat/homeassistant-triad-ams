@@ -16,6 +16,9 @@
         },
         "input_not_active": {
             "message": "Input {input} is not active"
+        },
+        "invalid_group_member": {
+            "message": "Entity {entity_id} is not a valid group member"
         }
     },
     "services": {

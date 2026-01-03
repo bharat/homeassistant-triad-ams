@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -27,9 +29,10 @@ if TYPE_CHECKING:
     from homeassistant.core import State
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+
 from .const import DOMAIN
 from .coordinator import TriadCoordinator
-from .models import TriadAmsOutput
+from .models import TriadAmsInput, TriadAmsOutput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +59,12 @@ class InputNotActiveError(HomeAssistantError):
     translation_key = "input_not_active"
 
 
+class InvalidGroupMemberError(HomeAssistantError):
+    """Error raised when a group member is not a valid Triad AMS output."""
+
+    translation_key = "invalid_group_member"
+
+
 def _build_input_names(
     hass: HomeAssistant,
     active_inputs: list[int],
@@ -79,6 +88,86 @@ def _build_input_names(
                 continue
         input_names[i] = f"Input {i}"
     return input_names
+
+
+def _build_inputs(
+    active_inputs: list[int],
+    input_names: dict[int, str],
+    input_links_opt: dict[str, str],
+) -> list[TriadAmsInput]:
+    """Build input models."""
+    return [
+        TriadAmsInput(i, input_names.get(i, f"Input {i}"), input_links_opt.get(str(i)))
+        for i in sorted(active_inputs)
+    ]
+
+
+def _build_outputs(
+    active_outputs: list[int],
+    coordinator: TriadCoordinator,
+    input_names: dict[int, str],
+) -> list[TriadAmsOutput]:
+    """Build output models."""
+    outputs: list[TriadAmsOutput] = []
+    for ch in sorted(active_outputs):
+        outputs.append(
+            TriadAmsOutput(ch, f"Output {ch}", coordinator, outputs, input_names)
+        )
+    return outputs
+
+
+def _create_input_entities(
+    inputs: list[TriadAmsInput], entry: ConfigEntry
+) -> dict[int, TriadAmsInputMediaPlayer]:
+    """Create input entities."""
+    return {
+        inp.number: TriadAmsInputMediaPlayer(inp, entry)
+        for inp in inputs
+        if inp.linked_entity_id
+    }
+
+
+def _find_linked_input(
+    _output: TriadAmsOutput,
+    input_links_opt: dict[str, str],
+    input_entities: dict[int, TriadAmsInputMediaPlayer],
+) -> str | None:
+    """Find the input entity linked to an output."""
+    for inp_num, inp_entity in input_entities.items():
+        if inp_entity.input.linked_entity_id == input_links_opt.get(str(inp_num)):
+            return inp_entity.entity_id
+    return None
+
+
+def _create_output_entities(
+    outputs: list[TriadAmsOutput],
+    entry: ConfigEntry,
+    input_links_opt: dict[str, str],
+    input_entities: dict[int, TriadAmsInputMediaPlayer],
+) -> list[TriadAmsMediaPlayer]:
+    """Create output entities."""
+    output_entities: list[TriadAmsMediaPlayer] = []
+    for output in outputs:
+        linked_input_id = _find_linked_input(output, input_links_opt, input_entities)
+        entity = TriadAmsMediaPlayer(
+            output, entry, input_links_opt, input_player_entity_id=linked_input_id
+        )
+        output_entities.append(entity)
+    return output_entities
+
+
+def _populate_group_members(
+    input_entities: dict[int, TriadAmsInputMediaPlayer],
+    output_entities: list[TriadAmsMediaPlayer],
+) -> None:
+    """Populate group members for input entities after they're added to HA."""
+    for input_entity in input_entities.values():
+        members = [
+            out.entity_id
+            for out in output_entities
+            if out.input_player_entity_id == input_entity.entity_id
+        ]
+        input_entity.group_members = members
 
 
 @callback
@@ -204,14 +293,20 @@ def _setup_input_link_subscriptions(
 def _cleanup_stale_entities(
     hass: HomeAssistant,
     entry: ConfigEntry,
+    inputs: list[TriadAmsInput],
     outputs: list[TriadAmsOutput],
     *,
     entity_registry_getter: Any = None,
 ) -> None:
-    """Remove stale entities for outputs that are no longer active."""
+    """Clean up stale and orphaned entities."""
     if entity_registry_getter is None:
         entity_registry_getter = er.async_get
-    allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
+    # Only keep entities for active outputs and linked inputs
+    allowed_outputs = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
+    allowed_inputs = {
+        f"{entry.entry_id}_input_{i.number}" for i in inputs if i.linked_entity_id
+    }
+    allowed = allowed_outputs | allowed_inputs
     registry = entity_registry_getter(hass)
     for ent in list(registry.entities.values()):
         if (
@@ -266,19 +361,12 @@ async def async_setup_entry(
     # Use only the minimal active channel lists from options
     active_inputs: list[int] = entry.options.get("active_inputs", [])
     active_outputs: list[int] = entry.options.get("active_outputs", [])
-
     input_links_opt: dict[str, str] = entry.options.get("input_links", {})
+
     input_names = _build_input_names(hass, active_inputs, input_links_opt)
-    input_links: dict[int, str | None] = {
-        i: input_links_opt.get(str(i)) for i in active_inputs
-    }
+    inputs = _build_inputs(active_inputs, input_names, input_links_opt)
+    outputs = _build_outputs(active_outputs, coordinator, input_names)
 
-    outputs: list[TriadAmsOutput] = []
-    for ch in sorted(active_outputs):
-        name = f"Output {ch}"
-        outputs.append(TriadAmsOutput(ch, name, coordinator, outputs, input_names))
-
-    # Ensure coordinator worker is running before any refresh enqueues commands
     try:
         await coordinator.start()
     except Exception:
@@ -288,11 +376,22 @@ async def async_setup_entry(
     for output in outputs:
         coordinator.register_output(output)
 
-    entities = [TriadAmsMediaPlayer(output, entry, input_links) for output in outputs]
+    # Create input proxy entities for linked inputs
+    input_entities = _create_input_entities(inputs, entry)
+    # Create output entities
+    output_entities = _create_output_entities(
+        outputs, entry, input_links_opt, input_entities
+    )
+
+    entities: list[MediaPlayerEntity] = list(input_entities.values()) + output_entities
     async_add_entities(entities)
+
     _LOGGER.debug(
         "Entities added to Home Assistant: %s", [e.unique_id for e in entities]
     )
+
+    # Populate group members after entities are added and have entity_ids
+    _populate_group_members(input_entities, output_entities)
 
     link_config = InputLinkConfig(
         input_links_opt=input_links_opt,
@@ -301,7 +400,7 @@ async def async_setup_entry(
         entities=entities,
     )
     _setup_input_link_subscriptions(hass, coordinator, link_config)
-    _cleanup_stale_entities(hass, entry, outputs)
+    _cleanup_stale_entities(hass, entry, inputs, outputs)
     _remove_orphaned_devices(hass, entry)
 
 
@@ -317,6 +416,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.VOLUME_STEP
         | MediaPlayerEntityFeature.SELECT_SOURCE
+        | MediaPlayerEntityFeature.GROUPING
     )
     _attr_should_poll = False
     _attr_has_entity_name = True
@@ -325,13 +425,16 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self,
         output: TriadAmsOutput,
         entry: ConfigEntry,
-        input_links: dict[int, str | None],
+        input_links: dict[str, str | None],
         *,
         state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
+        input_player_entity_id: str | None = None,
     ) -> None:
         """Initialize a Triad AMS output media player entity."""
         self.output = output
+        self._entry = entry
         self._input_links = input_links
+        self._input_player_entity_id = input_player_entity_id
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
         self._output_unsub: callable | None = None
@@ -365,12 +468,30 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             "model": "Audio Matrix",
         }
 
+    @property
+    def input_player_entity_id(self) -> str | None:
+        """Return the linked input media player entity ID."""
+        return self._input_player_entity_id
+
+    @property
+    def group_members(self) -> list[str] | None:
+        """Return this entity as a member of the linked input player group if linked."""
+        if self._input_player_entity_id is None:
+            return None
+        return [self.entity_id]
+
+    @property
+    def group_leader(self) -> bool:
+        """Return whether output is a group leader."""
+        return False
+
     # ---- Optional linked upstream media attribute proxying ----
     def _current_linked_entity_id(self) -> str | None:
         src = self.output.source
         if src is None:
             return None
-        return self._input_links.get(src)
+        # Options store keys as strings, but tests may inject int keys; check both
+        return self._input_links.get(src) or self._input_links.get(str(src))
 
     @callback
     def _update_link_subscription(self) -> None:
@@ -595,6 +716,31 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     async def async_turn_on_with_source(self, input_entity_id: str) -> None:
         """Turn on this output and route the given source."""
         # Map input entity ID to input number
+        # First check if input_entity_id is one of our input entities
+        if self.hass is not None:
+            registry = er.async_get(self.hass)
+            input_entry = registry.async_get(input_entity_id)
+
+            if (
+                input_entry
+                and input_entry.platform == DOMAIN
+                and input_entry.config_entry_id == self._entry.entry_id
+            ):
+                # This is one of our input entities - extract input number from unique_id  # noqa: E501
+                # Format: {entry_id}_input_{number}
+                match = re.search(r"_input_(\d+)$", input_entry.unique_id)
+                if match:
+                    try:
+                        source = int(match.group(1))
+                        if source in self._options.get("active_inputs", []):
+                            await self.output.set_source(source)
+                            self._update_link_subscription()
+                            self.async_write_ha_state()
+                            return
+                    except ValueError:
+                        pass
+
+        # Fall back to checking input_links for linked entities
         input_links = self._input_links
         source = None
         for input_str, linked_entity_id in input_links.items():
@@ -623,3 +769,251 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         await self.output.turn_on()
         self._update_link_subscription()
         self.async_write_ha_state()
+
+    async def async_unjoin_player(self) -> None:
+        """Leave any current group by disconnecting from the source."""
+        _LOGGER.info("Unjoining output %d from group", self.output.number)
+        await self.output.turn_off()
+        self._update_link_subscription()
+        self.async_write_ha_state()
+
+
+class TriadAmsInputMediaPlayer(MediaPlayerEntity):
+    """Media player entity that proxies a linked input media_player."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        input_model: TriadAmsInput,
+        entry: ConfigEntry,
+        group_members: list[str] | None = None,
+    ) -> None:
+        """Initialize a Triad AMS input proxy media player entity."""
+        self.input = input_model
+        self._group_members = group_members or []
+        self._attr_unique_id = f"{entry.entry_id}_input_{input_model.number}"
+        self._attr_name = input_model.name
+        self._attr_has_entity_name = True
+        self._attr_device_class = MediaPlayerDeviceClass.RECEIVER
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": "Triad",
+            "model": "Audio Matrix",
+        }
+        self._linked_unsub: callable | None = None
+
+    @callback
+    def _handle_linked_state_change(self, _event: object) -> None:
+        """Handle state changes from the linked source entity on the event loop."""
+        self.async_write_ha_state()
+
+    @property
+    def state(self) -> str:
+        """Proxy linked entity state (ON/OFF)."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return MediaPlayerState.OFF
+        st = self.hass.states.get(self.input.linked_entity_id)
+        if not st or st.state == "unknown":
+            return MediaPlayerState.OFF
+        return st.state
+
+    @property
+    def supported_features(self) -> int:
+        """Proxy supported features from the linked entity and add grouping support."""
+        linked_features = 0
+        if self.input.linked_entity_id and self.hass is not None:
+            st = self.hass.states.get(self.input.linked_entity_id)
+            if st:
+                linked_features = int(st.attributes.get("supported_features", 0))
+        volume_flags = (
+            MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_MUTE
+            | MediaPlayerEntityFeature.VOLUME_STEP
+        )
+        # Inputs are proxies, so remove volume control features;
+        # volume should only be adjusted on the physical outputs/speakers.
+        return (linked_features & ~volume_flags) | MediaPlayerEntityFeature.GROUPING
+
+    @property
+    def group_members(self) -> list[str] | None:
+        """Return combined group members from linked entity and output entities."""
+        members = list(self._group_members) if self._group_members else []
+        _LOGGER.debug("%s - Current group members: %s", self._attr_name, members)
+
+        # Add linked entity's group members
+        if self.input.linked_entity_id and self.hass is not None:
+            st = self.hass.states.get(self.input.linked_entity_id)
+            if st:
+                linked_members = st.attributes.get("group_members")
+                if linked_members:
+                    _LOGGER.debug(
+                        "%s - Adding linked group members: %s",
+                        self._attr_name,
+                        linked_members,
+                    )
+                    members.extend(linked_members)
+
+        return members if members else None
+
+    @group_members.setter
+    def group_members(self, members: list[str]) -> None:
+        """Set the list of group members."""
+        self._group_members = members
+
+    @property
+    def group_leader(self) -> bool:
+        """Return whether input is a group leader."""
+        return len(self._group_members) > 0
+
+    def _linked_attr(self, key: str) -> Any | None:
+        if not self.input.linked_entity_id or self.hass is None:
+            return None
+        st = self.hass.states.get(self.input.linked_entity_id)
+        if not st:
+            return None
+        return st.attributes.get(key)
+
+    # ---- Media info ----
+    @property
+    def media_title(self) -> str | None:
+        """Return the current media title from the linked source, if any."""
+        return self._linked_attr("media_title")
+
+    @property
+    def media_artist(self) -> str | None:
+        """Return the media artist from the linked source, if any."""
+        return self._linked_attr("media_artist")
+
+    @property
+    def media_album_name(self) -> str | None:
+        """Return the media album from the linked source, if any."""
+        return self._linked_attr("media_album_name")
+
+    @property
+    def media_duration(self) -> int | None:
+        """Return the media duration (seconds) from the linked source, if any."""
+        return self._linked_attr("media_duration")
+
+    @property
+    def media_content_id(self) -> str | None:
+        """Return the media content id from the linked source, if any."""
+        return self._linked_attr("media_content_id")
+
+    @property
+    def media_content_type(self) -> str | None:
+        """Return the media content type from the linked source, if any."""
+        return self._linked_attr("media_content_type")
+
+    @property
+    def entity_picture(self) -> str | None:
+        """Return the artwork URL from the linked source, if any."""
+        return self._linked_attr("entity_picture")
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to linked entity state changes and coordinator availability."""
+        if self.input.linked_entity_id and self.hass is not None:
+            self._linked_unsub = async_track_state_change_event(
+                self.hass,
+                [self.input.linked_entity_id],
+                self._handle_linked_state_change,
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from linked entity state changes and availability updates."""
+        if self._linked_unsub is not None:
+            self._linked_unsub()
+            self._linked_unsub = None
+        if self._availability_unsub is not None:
+            self._availability_unsub()
+            self._availability_unsub = None
+
+    async def async_join_players(self, group_members: list[str]) -> None:
+        """Route provided output players to this input."""
+        if self.hass is None:
+            return
+        if not group_members:
+            # Empty list means unjoin all members
+            self._group_members = []
+            self.async_write_ha_state()
+            return
+
+        registry = er.async_get(self.hass)
+
+        # Group members by domain/platform
+        members_by_domain: dict[str, list[str]] = {}
+        for member in group_members:
+            entry = registry.async_get(member)
+            if entry is None:
+                raise InvalidGroupMemberError(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_group_member",
+                    translation_placeholders={"entity_id": member},
+                )
+
+            domain = entry.platform
+            if domain not in members_by_domain:
+                members_by_domain[domain] = []
+            members_by_domain[domain].append(member)
+
+        # Process Triad AMS outputs - route to this input
+        triad_members = members_by_domain.pop(DOMAIN, [])
+        if triad_members:
+            tasks = [
+                self.hass.services.async_call(
+                    DOMAIN,
+                    "turn_on_with_source",
+                    {
+                        "entity_id": member,
+                        "input_entity_id": self.entity_id,
+                    },
+                    blocking=True,
+                )
+                for member in triad_members
+            ]
+            await asyncio.gather(*tasks)
+
+        # Process other domains - delegate to linked entity if same domain
+        for domain, members in members_by_domain.items():
+            # Only allow domains that match the linked entity's domain
+            if not self.input.linked_entity_id:
+                raise InvalidGroupMemberError(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_group_member",
+                    translation_placeholders={"entity_id": members[0]},
+                )
+
+            linked_entry = registry.async_get(self.input.linked_entity_id)
+            if not linked_entry or linked_entry.platform != domain:
+                raise InvalidGroupMemberError(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_group_member",
+                    translation_placeholders={"entity_id": members[0]},
+                )
+
+            # Delegate to linked entity's join service if it supports grouping
+            linked_state = self.hass.states.get(self.input.linked_entity_id)
+            if (
+                linked_state
+                and linked_state.attributes.get("supported_features", 0)
+                & MediaPlayerEntityFeature.GROUPING
+            ):
+                await self.hass.services.async_call(
+                    "media_player",
+                    "join",
+                    {
+                        "entity_id": self.input.linked_entity_id,
+                        "group_members": members,
+                    },
+                    blocking=True,
+                )
+
+        # Update group members list
+        self._group_members = [
+            m for m in group_members if m not in self._group_members
+        ] + self._group_members
+        self.async_write_ha_state()
+
+    # The unjoin operation lives on member entities (TriadAmsMediaPlayer).
