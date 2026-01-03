@@ -783,6 +783,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
     _attr_should_poll = False
     _attr_has_entity_name = True
+    PARALLEL_UPDATES = 1
 
     def __init__(
         self,
@@ -804,11 +805,42 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             "model": "Audio Matrix",
         }
         self._linked_unsub: callable | None = None
+        self._attr_available = True  # Track availability (Silver requirement)
+        self._availability_unsub: callable | None = None
 
     @callback
     def _handle_linked_state_change(self, _event: object) -> None:
         """Handle state changes from the linked source entity on the event loop."""
         self.async_write_ha_state()
+
+    @callback
+    def _update_availability(self, *, is_available: bool) -> None:
+        """Handle coordinator availability changes (Silver requirement)."""
+        if self._attr_available == is_available:
+            return
+        self._attr_available = is_available
+        _LOGGER.info(
+            "Triad AMS input %d %s",
+            self.input.number,
+            "available" if is_available else "unavailable",
+        )
+        # Only write state if hass is set (entity is added to hass)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return True if the entity is available."""
+        # Check coordinator availability directly (Silver requirement)
+        coordinator = getattr(self.input, "coordinator", None)
+        if coordinator is not None and hasattr(coordinator, "is_available"):
+            # is_available is a property, access it and ensure boolean
+            avail = coordinator.is_available
+            # Handle both property access and MagicMock return_value
+            if callable(avail):
+                return bool(avail())
+            return bool(avail)
+        return self._attr_available
 
     @property
     def state(self) -> str:
@@ -939,6 +971,14 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                 self.hass,
                 [self.input.linked_entity_id],
                 self._handle_linked_state_change,
+            )
+
+        # Subscribe to coordinator availability changes (Silver requirement)
+        if hasattr(self.input, "coordinator") and self.input.coordinator is not None:
+            self._availability_unsub = (
+                self.input.coordinator.register_availability_listener(
+                    self._update_availability
+                )
             )
 
     async def async_will_remove_from_hass(self) -> None:
