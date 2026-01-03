@@ -14,9 +14,9 @@ from custom_components.triad_ams.coordinator import (
 
 # Import repair module directly
 try:
-    from custom_components.triad_ams import repair
+    from custom_components.triad_ams import repairs
 except ImportError:
-    repair = None  # type: ignore[assignment]
+    repairs = None  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -67,9 +67,9 @@ class TestRepairIssues:
     ) -> None:
         """Test repair platform is registered."""
         # This test will fail until repair platform is implemented
-        assert repair is not None
-        assert hasattr(repair, "async_setup_entry")
-        assert callable(repair.async_setup_entry)
+        assert repairs is not None
+        assert hasattr(repairs, "async_setup_entry")
+        assert callable(repairs.async_setup_entry)
 
     @pytest.mark.asyncio
     async def test_repair_issue_created_on_unavailable(
@@ -84,7 +84,7 @@ class TestRepairIssues:
 
         # Mock async_create_issue from issue_registry
         with patch(
-            "custom_components.triad_ams.repair.issue_registry.async_create_issue"
+            "custom_components.triad_ams.repairs.issue_registry.async_create_issue"
         ) as mock_create_issue:
             mock_create_issue.return_value = None
 
@@ -99,8 +99,8 @@ class TestRepairIssues:
             mock_hass.async_create_task = MagicMock(side_effect=async_create_task)
 
             # Setup repair platform
-            assert repair is not None
-            await repair.async_setup_entry(mock_hass, mock_config_entry_repair)
+            assert repairs is not None
+            await repairs.async_setup_entry(mock_hass, mock_config_entry_repair)
 
             # Verify listener was registered
             assert len(coordinator_repair._availability_listeners) > 0, (
@@ -142,10 +142,10 @@ class TestRepairIssues:
         # Mock repair functions from issue_registry
         with (
             patch(
-                "custom_components.triad_ams.repair.issue_registry.async_create_issue"
+                "custom_components.triad_ams.repairs.issue_registry.async_create_issue"
             ) as mock_create_issue,
             patch(
-                "custom_components.triad_ams.repair.issue_registry.async_delete_issue"
+                "custom_components.triad_ams.repairs.issue_registry.async_delete_issue"
             ) as mock_delete_issue,
         ):
             mock_create_issue.return_value = None
@@ -165,8 +165,8 @@ class TestRepairIssues:
             mock_hass.created_tasks = created_tasks
 
             # Setup repair platform
-            assert repair is not None
-            await repair.async_setup_entry(mock_hass, mock_config_entry_repair)
+            assert repairs is not None
+            await repairs.async_setup_entry(mock_hass, mock_config_entry_repair)
 
             # Verify listener was registered
             assert len(coordinator_repair._availability_listeners) > 0, (
