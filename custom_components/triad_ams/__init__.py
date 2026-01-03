@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.typing import ConfigType
 
+from . import repairs
 from .const import DOMAIN
 from .coordinator import TriadCoordinator, TriadCoordinatorConfig
 from .coordinator import TriadCoordinator as TriadCoordinatorType
@@ -98,8 +99,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register repair platform (Gold requirement)
-    await hass.config_entries.async_forward_entry_setups(entry, ["repairs"])
+    # Set up repair issues (Gold requirement)
+    await repairs.async_setup_entry(hass, entry)
 
     return True
 

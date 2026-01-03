@@ -100,25 +100,29 @@ class TestAsyncSetupEntry:
         self, hass: MagicMock, config_entry: MagicMock
     ) -> None:
         """Test that async_setup_entry forwards platform setup."""
-        with patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class:
+        with (
+            patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class,
+            patch(
+                "custom_components.triad_ams.repairs.async_setup_entry"
+            ) as mock_repairs_setup,
+        ):
             mock_coord = MagicMock()
             mock_coord.start = create_async_mock_method()
             mock_coord_class.return_value = mock_coord
+            mock_repairs_setup.return_value = None
 
             await async_setup_entry(hass, config_entry)
 
-            # Should be called twice: once for media_player, once for repairs
-            assert hass.config_entries.async_forward_entry_setups.call_count == 2
+            # Should be called once for media_player platform
+            assert hass.config_entries.async_forward_entry_setups.call_count == 1
 
-            # Check first call (media_player platforms)
+            # Check call (media_player platform)
             call_args = hass.config_entries.async_forward_entry_setups.call_args_list[0]
             assert call_args[0][0] == config_entry
             assert "media_player" in call_args[0][1]
 
-            # Check second call (repairs platform)
-            call_args = hass.config_entries.async_forward_entry_setups.call_args_list[1]
-            assert call_args[0][0] == config_entry
-            assert "repairs" in call_args[0][1]
+            # Verify repairs.async_setup_entry was called directly
+            mock_repairs_setup.assert_called_once_with(hass, config_entry)
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_adds_update_listener(
