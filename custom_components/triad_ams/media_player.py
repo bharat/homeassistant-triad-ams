@@ -1,4 +1,33 @@
-"""MediaPlayer platform for Triad AMS outputs."""
+"""
+MediaPlayer platform for Triad AMS outputs.
+
+This module provides two types of media player entities:
+
+1. Output Entities (TriadAmsMediaPlayer):
+   - Represent physical audio outputs (speakers/zones)
+   - Always created for active outputs configured in options
+   - Support volume control, muting, source selection
+   - Can be grouped with input entities using the media_player.join service
+
+2. Input Entities (TriadAmsInputMediaPlayer):
+   - Represent audio sources linked to external media players
+   - Only created when an input has a linked entity configured in options
+   - Proxy playback controls (play/pause/next/etc.) to the linked media player
+   - Support grouping: can route multiple Triad outputs to play their audio
+   - Act as group coordinators for outputs playing the same source
+
+Entity Creation Logic:
+- Output entities: Created for every output in active_outputs option
+- Input entities: Created only for inputs in active_inputs with a linked entity
+- Unlinked inputs: No entity created, but still available as source for outputs
+
+Grouping Model:
+- Input entities support the GROUPING feature and implement async_join_players
+- When outputs join an input entity, they're routed to play that input's audio
+- Input entities track which outputs are playing them (group_members property)
+- Outputs can join inputs from different platforms (e.g., Sonos groups with Triad)
+- The input entity delegates grouping to its linked entity if supported
+"""
 
 from __future__ import annotations
 
@@ -66,7 +95,22 @@ def _build_input_names(
     *,
     state_getter: Callable[[HomeAssistant, str], State | None] | None = None,
 ) -> dict[int, str]:
-    """Build input names dict from linked entities or defaults."""
+    """
+    Build input names dict from linked entities or defaults.
+
+    Input names are derived from the linked entity's friendly name if available,
+    otherwise default to "Input N" format.
+
+    Args:
+        hass: Home Assistant instance
+        active_inputs: List of input numbers marked as active
+        input_links_opt: Mapping of input numbers (as strings) to entity IDs
+        state_getter: Optional state getter for testing
+
+    Returns:
+        Dictionary mapping input numbers to their display names
+
+    """
     if state_getter is None:
 
         def state_getter(h: HomeAssistant, eid: str) -> State | None:
@@ -90,7 +134,22 @@ def _build_inputs(
     input_links_opt: dict[str, str],
     coordinator: TriadCoordinator,
 ) -> list[TriadAmsInput]:
-    """Build input models."""
+    """
+    Build input models for all active inputs.
+
+    Creates TriadAmsInput model objects for each active input. These models
+    are used by both input entities (if linked) and output entities (as sources).
+
+    Args:
+        active_inputs: List of input numbers marked as active
+        input_names: Display names for each input
+        input_links_opt: Mapping of input numbers to linked entity IDs
+        coordinator: Coordinator for communication with the device
+
+    Returns:
+        List of TriadAmsInput model objects
+
+    """
     return [
         TriadAmsInput(
             i,
@@ -119,7 +178,26 @@ def _build_outputs(
 def _create_input_entities(
     inputs: list[TriadAmsInput], entry: ConfigEntry
 ) -> dict[int, TriadAmsInputMediaPlayer]:
-    """Create input entities."""
+    """
+    Create input entities for linked inputs only.
+
+    Input entities are only created when an input has a linked external
+    media player configured. This allows the input to:
+    1. Proxy playback controls to the linked player
+    2. Act as a group coordinator for outputs playing that input
+    3. Display state/metadata from the linked player
+
+    Unlinked inputs don't get entities but are still available as sources
+    for output entities to select.
+
+    Args:
+        inputs: List of all input models
+        entry: Config entry for device info
+
+    Returns:
+        Dictionary mapping input numbers to their entities (linked inputs only)
+
+    """
     return {
         inp.number: TriadAmsInputMediaPlayer(inp, entry)
         for inp in inputs
@@ -160,7 +238,24 @@ def _populate_group_members(
     input_entities: dict[int, TriadAmsInputMediaPlayer],
     output_entities: list[TriadAmsMediaPlayer],
 ) -> None:
-    """Populate group members for input entities after they're added to HA."""
+    """
+    Populate group members for input entities after they're added to HA.
+
+    This establishes the initial grouping relationships by finding which
+    outputs are configured to use each input entity as their linked player.
+    Must be called after entities have entity_ids assigned by Home Assistant.
+
+    The group_members list for each input entity contains the entity IDs of
+    all outputs that should play when that input is selected. This enables:
+    - Displaying group status in the UI
+    - Ungrouping outputs when needed
+    - Synchronizing playback across multiple zones
+
+    Args:
+        input_entities: Map of input numbers to their entities
+        output_entities: List of all output entities
+
+    """
     for input_entity in input_entities.values():
         members = [
             out.entity_id
@@ -298,7 +393,25 @@ def _cleanup_stale_entities(
     *,
     entity_registry_getter: Any = None,
 ) -> None:
-    """Clean up stale and orphaned entities."""
+    """
+    Clean up stale and orphaned entities.
+
+    Removes entities that are no longer needed:
+    - Output entities for outputs not in active_outputs
+    - Input entities for inputs without linked entities
+    - Input entities for inputs not in active_inputs
+
+    This ensures the entity registry stays in sync with the current
+    configuration when options are changed.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry identifying this device
+        inputs: Current list of input models
+        outputs: Current list of output models
+        entity_registry_getter: Optional registry getter for testing
+
+    """
     if entity_registry_getter is None:
         entity_registry_getter = er.async_get
     # Only keep entities for active outputs and linked inputs
@@ -348,7 +461,40 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up Triad AMS media player entities from a config entry."""
+    """
+    Set up Triad AMS media player entities from a config entry.
+
+    Creates two types of entities:
+
+    1. Output entities (always created for active outputs):
+       - Control physical speakers/zones
+       - Support volume, mute, source selection
+       - Can be grouped with input entities
+
+    2. Input entities (only for linked inputs):
+       - Created when input has linked_entity_id in options
+       - Proxy playback controls to linked media player
+       - Act as group coordinators for outputs
+
+    Entity Creation Rules:
+    - Every output in active_outputs gets an entity
+    - Only inputs with both:
+      a) Listed in active_inputs
+      b) Have a linked entity in input_links
+      get an entity created
+    - Unlinked inputs are available as sources but don't get entities
+
+    Grouping Setup:
+    - Input entities support media_player.join service
+    - Outputs can join inputs to play their audio
+    - Group membership is tracked and can span platforms
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry with device config and options
+        async_add_entities: Callback to register entities
+
+    """
     _LOGGER.debug(
         "async_setup_entry called for Triad AMS: entry_id=%s, data=%s, options=%s",
         entry.entry_id,

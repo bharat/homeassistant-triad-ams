@@ -1,4 +1,59 @@
-"""Input MediaPlayer entities for Triad AMS inputs."""
+"""
+Input MediaPlayer entities for Triad AMS inputs.
+
+Input entities are proxy media players that represent audio sources connected
+to the Triad AMS matrix. They are only created when an input is configured
+with a linked external media player entity.
+
+Purpose and Features:
+--------------------
+1. Playback Control Proxy:
+   - Forward play/pause/next/previous commands to the linked media player
+   - Display state and metadata from the linked player
+   - Strip volume controls (volume is managed by output entities)
+
+2. Group Coordinator:
+   - Support the media_player.join service to route outputs to this input
+   - Track which outputs (group_members) are playing this input's audio
+   - Enable multi-room audio by grouping outputs together
+
+3. Cross-Platform Grouping:
+   - Can group Triad outputs with non-Triad speakers (e.g., Sonos)
+   - Delegates grouping to linked entity if it supports GROUPING feature
+   - Routes Triad outputs through hardware matrix, others through linked player
+
+Creation Logic:
+--------------
+Input entities are ONLY created when ALL conditions are met:
+- Input number is in the active_inputs list (config option)
+- Input has a linked_entity_id configured (in input_links option)
+- The linked entity exists in Home Assistant
+
+If any condition is false, no entity is created but the input remains
+available as a selectable source for output entities.
+
+Grouping Model:
+--------------
+When media_player.join is called on an input entity with a list of outputs:
+
+1. Triad Outputs:
+   - Call turn_on_with_source service to route hardware audio
+   - Outputs play the analog/digital signal from the input
+
+2. Non-Triad Outputs (same domain as linked entity):
+   - Delegate to linked entity's join service if supported
+   - Enables grouping Sonos speakers, Chromecasts, etc.
+   - Linked entity manages the software grouping
+
+3. Mixed Groups:
+   - Both hardware and software grouping happen simultaneously
+   - Triad zones play hardware audio, non-Triad zones join via software
+
+4. Invalid Members:
+   - Unregistered entities raise InvalidGroupMemberError
+   - Non-Triad entities without matching linked domain raise error
+   - Ensures only compatible devices are grouped
+"""
 
 from __future__ import annotations
 
@@ -33,7 +88,43 @@ class InvalidGroupMemberError(HomeAssistantError):
 
 
 class TriadAmsInputMediaPlayer(MediaPlayerEntity):
-    """Media player entity that proxies a linked input media_player."""
+    """
+    Media player entity that proxies a linked input media_player.
+
+    This entity represents an audio source (input) on the Triad AMS matrix
+    that is linked to an external media player (e.g., Sonos, Chromecast).
+
+    Key Responsibilities:
+    --------------------
+    1. Proxy Playback Controls:
+       - Forwards play/pause/next/etc. to the linked media player
+       - Displays linked player's state, metadata, and artwork
+       - Excludes volume controls (volume managed by output entities)
+
+    2. Group Coordination:
+       - Implements async_join_players to route outputs to this input
+       - Maintains group_members list of outputs playing this input
+       - Supports cross-platform grouping with compatible devices
+
+    3. State Synchronization:
+       - Tracks linked entity state changes via event subscription
+       - Updates display when linked player changes
+       - Monitors coordinator availability
+
+    Entity Creation:
+    ---------------
+    Only created when the input has a linked_entity_id configured.
+    Without a linked entity, the input is still available as a source
+    for outputs but doesn't get its own entity.
+
+    Grouping Behavior:
+    -----------------
+    When media_player.join is called with group_members:
+    - Triad outputs: Routed via hardware to play this input's audio
+    - Non-Triad outputs: Delegated to linked entity if supported
+    - Empty list: Ungroups all members
+    - Invalid members: Raises InvalidGroupMemberError
+    """
 
     _attr_should_poll = False
     _attr_has_entity_name = True
@@ -245,7 +336,43 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             self._availability_unsub = None
 
     async def async_join_players(self, group_members: list[str]) -> None:
-        """Route provided output players to this input."""
+        """
+        Route provided output players to this input.
+
+        This implements the media_player.join service to enable grouping
+        outputs with this input entity. It handles both Triad outputs
+        (hardware routing) and non-Triad outputs (software grouping).
+
+        Grouping Logic:
+        --------------
+        1. Empty list: Ungroups all members
+        2. Triad outputs: Routes hardware audio to play this input
+        3. Non-Triad outputs: Delegates to linked entity's join service
+        4. Mixed groups: Both hardware and software grouping simultaneously
+
+        Validation:
+        ----------
+        - All entities must be registered in entity registry
+        - Non-Triad entities must match linked entity's platform
+        - Linked entity must support GROUPING feature for delegation
+        - Raises InvalidGroupMemberError for invalid members
+
+        Platform Examples:
+        -----------------
+        Join 2 Triad zones + 2 Sonos speakers to a Sonos input:
+        - Triad zones: Hardware routed to play input's analog audio
+        - Sonos speakers: Joined to linked Sonos via its group service
+        - Result: All 4 zones playing synchronized audio
+
+        Args:
+            group_members: List of entity IDs to group with this input.
+                          Empty list ungroups all members.
+
+        Raises:
+            InvalidGroupMemberError: If entity is not registered, wrong
+                                    platform, or doesn't support grouping
+
+        """
         if self.hass is None:
             return
         if not group_members:
