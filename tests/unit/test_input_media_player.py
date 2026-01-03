@@ -9,8 +9,13 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
-from custom_components.triad_ams.media_player import TriadAmsInputMediaPlayer
+from custom_components.triad_ams.const import DOMAIN
+from custom_components.triad_ams.input_media_player import (
+    InvalidGroupMemberError,
+    TriadAmsInputMediaPlayer,
+)
 from custom_components.triad_ams.models import TriadAmsInput
 
 
@@ -363,3 +368,319 @@ class TestTriadAmsInputMediaPlayerProxyCommands:
         await input_media_player.async_media_play()
 
         mock_hass.services.async_call.assert_not_called()
+
+
+class TestTriadAmsInputMediaPlayerGrouping:
+    """Test async_join_players grouping behavior."""
+
+    @pytest.mark.asyncio
+    async def test_join_players_with_empty_list_unjoins_all(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Empty group_members list should clear all members."""
+        input_media_player._group_members = [
+            "media_player.output_1",
+            "media_player.output_2",
+        ]
+        input_media_player.hass = mock_hass
+        input_media_player.async_write_ha_state = MagicMock()
+
+        await input_media_player.async_join_players([])
+
+        assert input_media_player._group_members == []
+        input_media_player.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_join_players_with_triad_outputs(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Joining Triad AMS outputs should call turn_on_with_source service."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock registry entries for Triad AMS outputs
+        output1_entry = MagicMock()
+        output1_entry.platform = DOMAIN
+        output2_entry = MagicMock()
+        output2_entry.platform = DOMAIN
+
+        mock_registry.async_get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.output_1": output1_entry,
+                "media_player.output_2": output2_entry,
+            }.get(entity_id)
+        )
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_join_players(
+            ["media_player.output_1", "media_player.output_2"]
+        )
+
+        assert mock_hass.services.async_call.call_count == 2
+        # Verify turn_on_with_source was called for each output
+        calls = mock_hass.services.async_call.call_args_list
+        for call in calls:
+            # Check positional args (domain, service, service_data)
+            assert len(call.args) == 3
+            assert call.args[0] == DOMAIN
+            assert call.args[1] == "turn_on_with_source"
+            assert "entity_id" in call.args[2]
+            assert "input_entity_id" in call.args[2]
+        assert input_media_player._group_members == [
+            "media_player.output_1",
+            "media_player.output_2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_join_players_with_mixed_domains_raises_error(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Mixing Triad outputs with non-linked domain raises error."""
+        input_media_player.hass = mock_hass
+        input_media_player.input.linked_entity_id = None  # No linked entity
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock registry: one Triad output, one Sonos entity
+        output_entry = MagicMock()
+        output_entry.platform = DOMAIN
+        sonos_entry = MagicMock()
+        sonos_entry.platform = "sonos"
+
+        mock_registry.async_get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.triad_output": output_entry,
+                "media_player.sonos_speaker": sonos_entry,
+            }.get(entity_id)
+        )
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        # Should raise because sonos entity has no linked entity to delegate to
+        with pytest.raises(InvalidGroupMemberError):
+            await input_media_player.async_join_players(
+                ["media_player.triad_output", "media_player.sonos_speaker"]
+            )
+
+    @pytest.mark.asyncio
+    async def test_join_players_delegates_to_linked_entity_with_grouping(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Delegate to linked entity if it supports grouping."""
+        input_media_player.hass = mock_hass
+        input_media_player.input.linked_entity_id = "media_player.sonos_main"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock registry: Triad output and Sonos speakers
+        output_entry = MagicMock()
+        output_entry.platform = DOMAIN
+        sonos_main_entry = MagicMock()
+        sonos_main_entry.platform = "sonos"
+        sonos_speaker_entry = MagicMock()
+        sonos_speaker_entry.platform = "sonos"
+
+        mock_registry.async_get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.triad_output": output_entry,
+                "media_player.sonos_main": sonos_main_entry,
+                "media_player.sonos_speaker": sonos_speaker_entry,
+            }.get(entity_id)
+        )
+
+        # Mock linked entity state with grouping support
+        linked_state = MagicMock()
+        linked_state.attributes = {
+            "supported_features": MediaPlayerEntityFeature.GROUPING
+        }
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: linked_state
+            if entity_id == "media_player.sonos_main"
+            else None
+        )
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_join_players(
+            ["media_player.triad_output", "media_player.sonos_speaker"]
+        )
+
+        # Should call both turn_on_with_source for Triad and join for Sonos
+        assert mock_hass.services.async_call.call_count == 2
+        calls = mock_hass.services.async_call.call_args_list
+
+        # Verify Triad output routing
+        triad_call = next(
+            c for c in calls if len(c.args) > 1 and c.args[1] == "turn_on_with_source"
+        )
+        assert len(triad_call.args) == 3
+        assert triad_call.args[0] == DOMAIN
+        assert triad_call.args[1] == "turn_on_with_source"
+
+        # Verify Sonos grouping delegation
+        sonos_call = next(c for c in calls if len(c.args) > 1 and c.args[1] == "join")
+        assert len(sonos_call.args) == 3
+        assert sonos_call.args[0] == "media_player"
+        assert sonos_call.args[1] == "join"
+        assert sonos_call.args[2]["entity_id"] == "media_player.sonos_main"
+        assert sonos_call.args[2]["group_members"] == ["media_player.sonos_speaker"]
+
+    @pytest.mark.asyncio
+    async def test_join_players_raises_when_linked_entity_lacks_grouping(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should skip delegation when linked entity doesn't support grouping."""
+        input_media_player.hass = mock_hass
+        input_media_player.input.linked_entity_id = "media_player.chromecast_main"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock registry
+        output_entry = MagicMock()
+        output_entry.platform = DOMAIN
+        chromecast_main_entry = MagicMock()
+        chromecast_main_entry.platform = "cast"
+        chromecast_speaker_entry = MagicMock()
+        chromecast_speaker_entry.platform = "cast"
+
+        mock_registry.async_get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.triad_output": output_entry,
+                "media_player.chromecast_main": chromecast_main_entry,
+                "media_player.chromecast_speaker": chromecast_speaker_entry,
+            }.get(entity_id)
+        )
+
+        # Mock linked entity WITHOUT grouping support
+        linked_state = MagicMock()
+        linked_state.attributes = {"supported_features": 0}  # No GROUPING feature
+        mock_hass.states.get = MagicMock(
+            side_effect=lambda entity_id: linked_state
+            if entity_id == "media_player.chromecast_main"
+            else None
+        )
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        # Should succeed for Triad output but not attempt delegation
+        await input_media_player.async_join_players(
+            ["media_player.triad_output", "media_player.chromecast_speaker"]
+        )
+
+        # Only Triad output should be routed (no join call for unsupported grouping)
+        assert mock_hass.services.async_call.call_count == 1
+        call = mock_hass.services.async_call.call_args_list[0]
+        assert len(call.args) == 3
+        assert call.args[0] == DOMAIN
+        assert call.args[1] == "turn_on_with_source"
+
+    @pytest.mark.asyncio
+    async def test_join_players_replaces_members_not_merges(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Group members should be replaced, not merged with existing."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player._group_members = [
+            "media_player.old_output_1",
+            "media_player.old_output_2",
+        ]
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        output_entry = MagicMock()
+        output_entry.platform = DOMAIN
+        mock_registry.async_get = MagicMock(return_value=output_entry)
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_join_players(["media_player.new_output"])
+
+        # Should completely replace, not merge
+        assert input_media_player._group_members == ["media_player.new_output"]
+        assert "media_player.old_output_1" not in input_media_player._group_members
+        assert "media_player.old_output_2" not in input_media_player._group_members
+
+    @pytest.mark.asyncio
+    async def test_join_players_with_unregistered_entity_raises_error(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Should raise InvalidGroupMemberError for unregistered entities."""
+        input_media_player.hass = mock_hass
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+        mock_registry.async_get = MagicMock(return_value=None)  # Entity not found
+
+        with pytest.raises(InvalidGroupMemberError) as exc_info:
+            await input_media_player.async_join_players(
+                ["media_player.nonexistent_entity"]
+            )
+
+        assert exc_info.value.translation_key == "invalid_group_member"
+        assert (
+            exc_info.value.translation_placeholders["entity_id"]
+            == "media_player.nonexistent_entity"
+        )
+
+    @pytest.mark.asyncio
+    async def test_join_players_with_wrong_domain_raises_error(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Raise error when non-Triad entity doesn't match linked domain."""
+        input_media_player.hass = mock_hass
+        input_media_player.input.linked_entity_id = "media_player.sonos_main"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        mock_registry = MagicMock()
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Mock registry: Triad output, Sonos linked entity, but trying to join cast
+        output_entry = MagicMock()
+        output_entry.platform = DOMAIN
+        sonos_main_entry = MagicMock()
+        sonos_main_entry.platform = "sonos"
+        cast_entry = MagicMock()
+        cast_entry.platform = "cast"  # Wrong domain
+
+        mock_registry.async_get = MagicMock(
+            side_effect=lambda entity_id: {
+                "media_player.triad_output": output_entry,
+                "media_player.sonos_main": sonos_main_entry,
+                "media_player.cast_speaker": cast_entry,
+            }.get(entity_id)
+        )
+
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        # Should raise because cast domain doesn't match sonos linked entity
+        with pytest.raises(InvalidGroupMemberError) as exc_info:
+            await input_media_player.async_join_players(
+                ["media_player.triad_output", "media_player.cast_speaker"]
+            )
+
+        assert exc_info.value.translation_key == "invalid_group_member"
+        assert (
+            exc_info.value.translation_placeholders["entity_id"]
+            == "media_player.cast_speaker"
+        )
