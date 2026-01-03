@@ -1,6 +1,6 @@
 """Unit tests for TriadAmsInputMediaPlayer feature masking."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.media_player import (
@@ -151,3 +151,215 @@ class TestTriadAmsInputMediaPlayerGroupMembers:
         members = input_media_player.group_members
 
         assert members == ["media_player.local_1"]
+
+
+class TestTriadAmsInputMediaPlayerProxyCommands:
+    """Test media playback command proxying to linked entity."""
+
+    @pytest.mark.asyncio
+    async def test_play_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_play should call service on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_play()
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_play",
+            {"entity_id": "media_player.linked"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_pause should call service on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_pause()
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_pause",
+            {"entity_id": "media_player.linked"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_stop should call service on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_stop()
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_stop",
+            {"entity_id": "media_player.linked"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_next_track_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_next_track should call service on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_next_track()
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_next_track",
+            {"entity_id": "media_player.linked"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_previous_track_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_previous_track should call service on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_previous_track()
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_previous_track",
+            {"entity_id": "media_player.linked"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_seek_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_media_seek should call service with position on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_seek(123.45)
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "media_seek",
+            {"entity_id": "media_player.linked", "seek_position": 123.45},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_play_media_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_play_media should call service with media info on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_play_media("music", "spotify://track/123")
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "play_media",
+            {
+                "entity_id": "media_player.linked",
+                "media_content_type": "music",
+                "media_content_id": "spotify://track/123",
+            },
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_select_source_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_select_source should call service with source on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_select_source("Spotify")
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "select_source",
+            {"entity_id": "media_player.linked", "source": "Spotify"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_shuffle_set_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_shuffle_set should call service with shuffle state on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_shuffle_set(shuffle=True)
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "shuffle_set",
+            {"entity_id": "media_player.linked", "shuffle": True},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_repeat_set_proxies_to_linked(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """async_set_repeat should call service with repeat mode on linked entity."""
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_set_repeat("all")
+
+        mock_hass.services.async_call.assert_called_once_with(
+            "media_player",
+            "repeat_set",
+            {"entity_id": "media_player.linked", "repeat": "all"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_play_no_op_without_linked_entity(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Playback commands should be no-op when no linked entity configured."""
+        input_media_player.input.linked_entity_id = None
+        input_media_player.hass = mock_hass
+        mock_hass.services = MagicMock()
+        mock_hass.services.async_call = AsyncMock()
+
+        await input_media_player.async_media_play()
+
+        mock_hass.services.async_call.assert_not_called()

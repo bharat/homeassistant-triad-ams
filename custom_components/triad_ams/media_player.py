@@ -912,6 +912,26 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         """Return the artwork URL from the linked source, if any."""
         return self._linked_attr("entity_picture")
 
+    @property
+    def shuffle(self) -> bool | None:
+        """Return the shuffle state from the linked source, if any."""
+        return self._linked_attr("shuffle")
+
+    @property
+    def repeat(self) -> str | None:
+        """Return the repeat mode from the linked source, if any."""
+        return self._linked_attr("repeat")
+
+    @property
+    def sound_mode(self) -> str | None:
+        """Return the current sound mode from the linked source, if any."""
+        return self._linked_attr("sound_mode")
+
+    @property
+    def sound_mode_list(self) -> list[str] | None:
+        """Return the list of available sound modes from the linked source, if any."""
+        return self._linked_attr("sound_mode_list")
+
     async def async_added_to_hass(self) -> None:
         """Subscribe to linked entity state changes and coordinator availability."""
         if self.input.linked_entity_id and self.hass is not None:
@@ -1017,3 +1037,121 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
     # The unjoin operation lives on member entities (TriadAmsMediaPlayer).
+
+    # ---- Media playback control proxying ----
+    async def async_media_play(self) -> None:
+        """Proxy play command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_play",
+            {"entity_id": self.input.linked_entity_id},
+            blocking=False,
+        )
+
+    async def async_media_pause(self) -> None:
+        """Proxy pause command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_pause",
+            {"entity_id": self.input.linked_entity_id},
+            blocking=False,
+        )
+
+    async def async_media_stop(self) -> None:
+        """Proxy stop command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_stop",
+            {"entity_id": self.input.linked_entity_id},
+            blocking=False,
+        )
+
+    async def async_media_next_track(self) -> None:
+        """Proxy next track command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_next_track",
+            {"entity_id": self.input.linked_entity_id},
+            blocking=False,
+        )
+
+    async def async_media_previous_track(self) -> None:
+        """Proxy previous track command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_previous_track",
+            {"entity_id": self.input.linked_entity_id},
+            blocking=False,
+        )
+
+    async def async_media_seek(self, position: float) -> None:
+        """Proxy seek command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "media_seek",
+            {"entity_id": self.input.linked_entity_id, "seek_position": position},
+            blocking=False,
+        )
+
+    async def async_play_media(
+        self, media_type: str, media_id: str, **kwargs: Any
+    ) -> None:
+        """Proxy play media command to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "play_media",
+            {
+                "entity_id": self.input.linked_entity_id,
+                "media_content_type": media_type,
+                "media_content_id": media_id,
+                **kwargs,
+            },
+            blocking=False,
+        )
+
+    async def async_select_source(self, source: str) -> None:
+        """Proxy source selection to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "select_source",
+            {"entity_id": self.input.linked_entity_id, "source": source},
+            blocking=False,
+        )
+
+    async def async_shuffle_set(self, *, shuffle: bool) -> None:
+        """Proxy shuffle setting to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "shuffle_set",
+            {"entity_id": self.input.linked_entity_id, "shuffle": shuffle},
+            blocking=False,
+        )
+
+    async def async_set_repeat(self, repeat: str) -> None:
+        """Proxy repeat mode setting to linked entity."""
+        if not self.input.linked_entity_id or self.hass is None:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            "repeat_set",
+            {"entity_id": self.input.linked_entity_id, "repeat": repeat},
+            blocking=False,
+        )
