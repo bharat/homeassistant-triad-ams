@@ -2,6 +2,9 @@
   "services": {
     "turn_on_with_source": {
       "service": "mdi:power"
+    },
+    "get_joinable_group_members": {
+      "service": "mdi:speaker-multiple"
     }
   }
 }

@@ -22,3 +22,13 @@ get_joinable_group_members:
       domain: media_player
       integration: triad_ams
       device_class: receiver
+  response:
+    mandatory: true
+    schema:
+      type: object
+      properties:
+        joinable_members:
+          type: array
+          items:
+            type: string
+          description: "List of entity IDs that can join the current input for grouping."

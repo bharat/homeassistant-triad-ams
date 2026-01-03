@@ -339,7 +339,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             self._availability_unsub()
             self._availability_unsub = None
 
-    async def async_get_joinable_group_members(self) -> list[str]:
+    async def async_get_joinable_group_members(self) -> dict[str, Any]:
         """
         Return all output entities that can join this input.
 
@@ -359,8 +359,8 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         (Triad outputs) or software grouping (linked platform outputs).
 
         Returns:
-            List of entity IDs that can join this input.
-            Returns empty list if entity_id is not set.
+            Dict with 'joinable_members' key containing list of entity IDs
+            that can join this input. Returns empty list if entity_id is not set.
 
         Example:
             Input linked to Sonos speaker at
@@ -373,7 +373,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
         """
         if not self.entity_id or self.hass is None:
-            return []
+            return {"joinable_members": []}
 
         joinable = []
         registry = er.async_get(self.hass)
@@ -411,7 +411,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                     "supported_features", 0
                 )
                 if not (supported_features & MediaPlayerEntityFeature.GROUPING):
-                    return joinable
+                    return {"joinable_members": joinable}
 
                 # Try to use linked entity's async_get_joinable_group_members
                 # if available
@@ -422,7 +422,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                     # Fallback: manually discover platform entities
                     joinable.extend(await self._discover_platform_entities(registry))
 
-        return joinable
+        return {"joinable_members": joinable}
 
     async def _get_linked_joinable_members(self) -> list[str] | None:
         """
