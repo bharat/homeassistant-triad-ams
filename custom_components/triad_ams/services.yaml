@@ -15,3 +15,10 @@ turn_on_with_source:
             supported_features:
               - media_player.MediaPlayerEntityFeature.PLAY
               - media_player.MediaPlayerEntityFeature.PLAY_MEDIA
+get_joinable_group_members:
+  description: "Get all speaker entities that can join this input for grouping."
+  target:
+    entity:
+      domain: media_player
+      integration: triad_ams
+      device_class: receiver

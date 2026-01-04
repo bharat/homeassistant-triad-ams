@@ -58,18 +58,30 @@ class TestAsyncSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_registers_service(self, hass: MagicMock) -> None:
-        """Test that async_setup registers the service."""
+        """Test that async_setup registers the services."""
         with patch(
             "custom_components.triad_ams.service.async_register_platform_entity_service"
         ) as mock_register:
             result = await async_setup(hass, {})
 
             assert result is True
-            mock_register.assert_called_once()
-            # Verify service registration
-            call_args = mock_register.call_args
-            assert call_args[1]["entity_domain"] == "media_player"
-            assert call_args[1]["schema"] is not None
+            # Verify both services are registered
+            assert mock_register.call_count == 2
+
+            # Check turn_on_with_source service
+            call1_args = mock_register.call_args_list[0]
+            assert call1_args[0][1] == "triad_ams"
+            assert call1_args[0][2] == "turn_on_with_source"
+            assert call1_args[1]["entity_domain"] == "media_player"
+            assert call1_args[1]["schema"] is not None
+
+            # Check get_joinable_group_members service
+            call2_args = mock_register.call_args_list[1]
+            assert call2_args[0][1] == "triad_ams"
+            assert call2_args[0][2] == "get_joinable_group_members"
+            assert call2_args[1]["entity_domain"] == "media_player"
+            # Schema is empty (voluptuous converts {} to vol.Schema({}))
+            assert call2_args[1]["schema"] is not None
 
 
 class TestAsyncSetupEntry:
