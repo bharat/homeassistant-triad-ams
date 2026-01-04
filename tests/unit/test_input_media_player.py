@@ -744,12 +744,12 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         output1_state = MagicMock()
         output1_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
         output2_state = MagicMock()
         output2_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
 
         mock_hass.states.get = MagicMock(
@@ -796,12 +796,12 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         output1_state = MagicMock()
         output1_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
         receiver_state = MagicMock()
         receiver_state.attributes = {
             "device_class": "receiver",
-            "linked_input_entity_id": None,
+            "source": None,
         }
 
         mock_hass.states.get = MagicMock(
@@ -847,12 +847,12 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         output1_state = MagicMock()
         output1_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
         output2_state = MagicMock()
         output2_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": "media_player.input_1",
+            "source": "Input 1",  # Playing this input
         }
 
         mock_hass.states.get = MagicMock(
@@ -894,16 +894,16 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
         mock_hass.data[er.DATA_REGISTRY] = mock_registry
 
-        # output_1 is unlinked, output_2 is linked to input_2
+        # output_1 is unlinked (no source), output_2 is playing "Input 2"
         output1_state = MagicMock()
         output1_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
         output2_state = MagicMock()
         output2_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": "media_player.input_2",
+            "source": "Input 2",  # Playing a different input
         }
 
         mock_hass.states.get = MagicMock(
@@ -947,7 +947,7 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         output1_state = MagicMock()
         output1_state.attributes = {
             "device_class": "speaker",
-            "linked_input_entity_id": None,
+            "source": None,
         }
 
         mock_hass.states.get = MagicMock(

@@ -397,9 +397,14 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             if state.attributes.get("device_class") != MediaPlayerDeviceClass.SPEAKER:
                 continue
 
-            # Get the linked input for this output (if any)
-            linked_input = state.attributes.get("linked_input_entity_id")
-            if linked_input is None or linked_input == self.entity_id:
+            # Check if output is playing a different input via source attribute
+            # Source contains the friendly name of the input being played
+            current_source = state.attributes.get("source")
+
+            # Include output if:
+            # 1. It has no source (not playing anything), OR
+            # 2. Its source matches this input's name (already playing this input)
+            if current_source is None or current_source == self._attr_name:
                 joinable.append(output_id)
 
         # Add platform entities from linked player if available
