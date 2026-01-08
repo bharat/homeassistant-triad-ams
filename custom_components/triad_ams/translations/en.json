@@ -32,9 +32,9 @@
                 }
             }
         },
-        "get_joinable_group_members": {
-            "name": "Get Joinable Group Members",
-            "description": "Get all speaker entities that can join this input for grouping."
+        "get_groupable_players": {
+            "name": "Get Groupable Players",
+            "description": "Get all speaker entities that can group with this input."
         }
     }
 }

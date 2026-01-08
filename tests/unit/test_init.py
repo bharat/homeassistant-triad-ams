@@ -75,10 +75,10 @@ class TestAsyncSetup:
             assert call1_args[1]["entity_domain"] == "media_player"
             assert call1_args[1]["schema"] is not None
 
-            # Check get_joinable_group_members service
+            # Check get_groupable_players service
             call2_args = mock_register.call_args_list[1]
             assert call2_args[0][1] == "triad_ams"
-            assert call2_args[0][2] == "get_joinable_group_members"
+            assert call2_args[0][2] == "get_groupable_players"
             assert call2_args[1]["entity_domain"] == "media_player"
             # Schema is empty (voluptuous converts {} to vol.Schema({}))
             assert call2_args[1]["schema"] is not None

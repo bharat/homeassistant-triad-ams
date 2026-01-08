@@ -687,7 +687,7 @@ class TestTriadAmsInputMediaPlayerGrouping:
 
 
 class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
-    """Test async_get_joinable_group_members service method."""
+    """Test async_get_groupable_players service method."""
 
     @pytest.mark.asyncio
     async def test_get_joinable_returns_empty_without_entity_id(
@@ -697,9 +697,9 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         input_media_player.hass = mock_hass
         input_media_player.entity_id = None
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert result == {"joinable_members": []}
+        assert result == {"result": []}
 
     @pytest.mark.asyncio
     async def test_get_joinable_returns_empty_without_hass(
@@ -709,9 +709,9 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         input_media_player.entity_id = "media_player.input_1"
         input_media_player.hass = None
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert result == {"joinable_members": []}
+        assert result == {"result": []}
 
     @pytest.mark.asyncio
     async def test_get_joinable_includes_unlinked_speaker_outputs(
@@ -759,11 +759,11 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.output_1" in result["joinable_members"]
-        assert "media_player.output_2" in result["joinable_members"]
-        assert "media_player.input_1" not in result["joinable_members"]  # Exclude self
+        assert "media_player.output_1" in result["result"]
+        assert "media_player.output_2" in result["result"]
+        assert "media_player.input_1" not in result["result"]  # Exclude self
 
     @pytest.mark.asyncio
     async def test_get_joinable_excludes_non_speaker_outputs(
@@ -811,10 +811,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.output_1" in result["joinable_members"]
-        assert "media_player.receiver" not in result["joinable_members"]
+        assert "media_player.output_1" in result["result"]
+        assert "media_player.receiver" not in result["result"]
 
     @pytest.mark.asyncio
     async def test_get_joinable_includes_linked_to_current_input(
@@ -862,10 +862,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.output_1" in result["joinable_members"]
-        assert "media_player.output_2" in result["joinable_members"]
+        assert "media_player.output_1" in result["result"]
+        assert "media_player.output_2" in result["result"]
 
     @pytest.mark.asyncio
     async def test_get_joinable_excludes_linked_to_other_inputs(
@@ -913,10 +913,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.output_1" in result["joinable_members"]
-        assert "media_player.output_2" not in result["joinable_members"]
+        assert "media_player.output_1" in result["result"]
+        assert "media_player.output_2" not in result["result"]
 
     @pytest.mark.asyncio
     async def test_get_joinable_returns_triad_only_when_linked_lacks_grouping(
@@ -957,11 +957,11 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
         # Should only include Triad output, no platform entities
-        assert "media_player.output_1" in result["joinable_members"]
-        assert len(result["joinable_members"]) == 1
+        assert "media_player.output_1" in result["result"]
+        assert len(result["result"]) == 1
 
     @pytest.mark.asyncio
     async def test_get_joinable_includes_platform_entities_from_linked_player(
@@ -1024,12 +1024,12 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.sonos_speaker_1" in result["joinable_members"]
-        assert "media_player.sonos_speaker_2" in result["joinable_members"]
+        assert "media_player.sonos_speaker_1" in result["result"]
+        assert "media_player.sonos_speaker_2" in result["result"]
         assert (
-            "media_player.sonos_main" not in result["joinable_members"]
+            "media_player.sonos_main" not in result["result"]
         )  # Exclude linked entity
 
     @pytest.mark.asyncio
@@ -1093,7 +1093,7 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
             }.get(entity_id)
         )
 
-        result = await input_media_player.async_get_joinable_group_members()
+        result = await input_media_player.async_get_groupable_players()
 
-        assert "media_player.sonos_speaker" in result["joinable_members"]
-        assert "media_player.sonos_receiver" not in result["joinable_members"]
+        assert "media_player.sonos_speaker" in result["result"]
+        assert "media_player.sonos_receiver" not in result["result"]

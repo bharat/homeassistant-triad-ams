@@ -3,7 +3,7 @@
     "turn_on_with_source": {
       "service": "mdi:power"
     },
-    "get_joinable_group_members": {
+    "get_groupable_players": {
       "service": "mdi:speaker-multiple"
     }
   }

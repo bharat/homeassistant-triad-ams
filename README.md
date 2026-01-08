@@ -38,7 +38,7 @@ Features
   - Route a single input to multiple outputs with a single command
   - Cross-platform grouping with non-Triad speakers (e.g., Sonos, Chromecast)
   - Mixed groups: Triad zones receive audio from the input via hardware while non-Triad speakers delegate to linked player
-  - `async_get_joinable_group_members` service to discover which outputs can be grouped
+  - `async_get_groupable_players` service to discover which outputs can be grouped
 
 ### Configuration & Safety
 - Simple config flow
@@ -103,8 +103,17 @@ To use media player grouping features:
    - Provide a list of output entities to join the group
    - Triad outputs will receive audio from that input via hardware
    - Non-Triad speakers in the group (same domain as linked entity) will join via the linked player
-4. **Discover joinable outputs** using the `triad_ams.async_get_joinable_group_members` service
-   - Call on an input entity to see which outputs can be grouped with it
+4. **Discover joinable outputs** using the `triad_ams.get_groupable_players` service
+  - Call on an input entity to see which outputs can be grouped with it
+  - Response shape: `{ "result": ["media_player.zone_1", ...] }`
+
+Example (Developer Tools → Services):
+
+```yaml
+service: triad_ams.get_groupable_players
+target:
+  entity_id: media_player.your_input_entity
+```
 
 Notes
 -----

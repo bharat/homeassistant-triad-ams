@@ -339,9 +339,9 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
             self._availability_unsub()
             self._availability_unsub = None
 
-    async def async_get_joinable_group_members(self) -> dict[str, Any]:
+    async def async_get_groupable_players(self) -> dict[str, Any]:
         """
-        Return all output entities that can join this input.
+        Return all output entities that can group with this input.
 
         Joinable members include:
         1. All Triad AMS output entities that are:
@@ -350,7 +350,8 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         2. Platform entities from the linked player entity (if supported)
 
         If the linked entity supports GROUPING and implements
-        async_get_joinable_group_members, its response is used directly.
+        async_get_groupable_players (or legacy async_get_joinable_group_members),
+        its response is used directly.
         Otherwise, platform entities are discovered by filtering the
         entity registry for matching domain and speaker device_class.
 
@@ -359,8 +360,8 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         (Triad outputs) or software grouping (linked platform outputs).
 
         Returns:
-            Dict with 'joinable_members' key containing list of entity IDs
-            that can join this input. Returns empty list if entity_id is not set.
+            Dict with 'result' key containing list of entity IDs that can
+            join this input. Returns empty list if entity_id is not set.
 
         Example:
             Input linked to Sonos speaker at
@@ -373,7 +374,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
         """
         if not self.entity_id or self.hass is None:
-            return {"joinable_members": []}
+            return {"result": []}
 
         joinable = []
         registry = er.async_get(self.hass)
@@ -416,26 +417,26 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                     "supported_features", 0
                 )
                 if not (supported_features & MediaPlayerEntityFeature.GROUPING):
-                    return {"joinable_members": joinable}
+                    return {"result": joinable}
 
-                # Try to use linked entity's async_get_joinable_group_members
-                # if available
-                platform_entities = await self._get_linked_joinable_members()
+                # Try to use linked entity's async_get_groupable_players
+                # (or legacy async_get_joinable_group_members) if available
+                platform_entities = await self._get_linked_groupable_members()
                 if platform_entities is not None:
                     joinable.extend(platform_entities)
                 else:
                     # Fallback: manually discover platform entities
                     joinable.extend(await self._discover_platform_entities(registry))
 
-        return {"joinable_members": joinable}
+        return {"result": joinable}
 
-    async def _get_linked_joinable_members(self) -> list[str] | None:
+    async def _get_linked_groupable_members(self) -> list[str] | None:
         """
-        Try to get joinable members from linked entity's service method.
+        Try to get groupable members from linked entity's service method.
 
-        If the linked entity implements async_get_joinable_group_members,
-        call it and return the result. Otherwise, return None to trigger
-        manual discovery.
+        If the linked entity implements async_get_groupable_players (preferred)
+        or legacy async_get_joinable_group_members, call it and return the
+        result. Otherwise, return None to trigger manual discovery.
 
         Returns:
             List of entity_ids if linked entity supports the method,
@@ -468,10 +469,15 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                 if entity:
                     break
 
-            if entity and hasattr(entity, "async_get_joinable_group_members"):
-                result = await entity.async_get_joinable_group_members()
+            if entity:
+                if hasattr(entity, "async_get_groupable_players"):
+                    result = await entity.async_get_groupable_players()
+                elif hasattr(entity, "async_get_joinable_group_members"):
+                    result = await entity.async_get_joinable_group_members()
+                else:
+                    result = None
                 _LOGGER.debug(
-                    "%s - Got joinable members from linked entity: %s",
+                    "%s - Got groupable members from linked entity: %s",
                     self._attr_name,
                     result,
                 )
@@ -479,7 +485,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
         except Exception:
             _LOGGER.exception(
-                "Error calling async_get_joinable_group_members on linked entity %s",
+                "Error calling groupable members method on linked entity %s",
                 self.input.linked_entity_id,
             )
 
