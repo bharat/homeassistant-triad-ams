@@ -419,77 +419,10 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                 if not (supported_features & MediaPlayerEntityFeature.GROUPING):
                     return {"result": joinable}
 
-                # Try to use linked entity's async_get_groupable_players
-                # (or legacy async_get_joinable_group_members) if available
-                platform_entities = await self._get_linked_groupable_members()
-                if platform_entities is not None:
-                    joinable.extend(platform_entities)
-                else:
-                    # Fallback: manually discover platform entities
-                    joinable.extend(await self._discover_platform_entities(registry))
+                # Discover platform entities from same platform as linked entity
+                joinable.extend(await self._discover_platform_entities(registry))
 
         return {"result": joinable}
-
-    async def _get_linked_groupable_members(self) -> list[str] | None:
-        """
-        Try to get groupable members from linked entity's service method.
-
-        If the linked entity implements async_get_groupable_players (preferred)
-        or legacy async_get_joinable_group_members, call it and return the
-        result. Otherwise, return None to trigger manual discovery.
-
-        Returns:
-            List of entity_ids if linked entity supports the method,
-            None if method is not available.
-
-        """
-        if not self.input.linked_entity_id or self.hass is None:
-            return None
-
-        try:
-            # Try to get the entity object from entity registry
-            registry = er.async_get(self.hass)
-            entry = registry.async_get(self.input.linked_entity_id)
-            if not entry:
-                return None
-
-            # Get the entity object from the platform (entity_id -> entity object)
-            # This requires accessing the entity registry's internal entities
-            entity_id = self.input.linked_entity_id
-            entity = None
-
-            # Try to find entity in hass.data if it's available
-            # Different platforms store entities differently
-            for domain_data in self.hass.data.values():
-                if isinstance(domain_data, dict):
-                    for item in domain_data.values():
-                        if hasattr(item, "entity_id") and item.entity_id == entity_id:
-                            entity = item
-                            break
-                if entity:
-                    break
-
-            if entity:
-                if hasattr(entity, "async_get_groupable_players"):
-                    result = await entity.async_get_groupable_players()
-                elif hasattr(entity, "async_get_joinable_group_members"):
-                    result = await entity.async_get_joinable_group_members()
-                else:
-                    result = None
-                _LOGGER.debug(
-                    "%s - Got groupable members from linked entity: %s",
-                    self._attr_name,
-                    result,
-                )
-                return result if isinstance(result, list) else None
-
-        except Exception:
-            _LOGGER.exception(
-                "Error calling groupable members method on linked entity %s",
-                self.input.linked_entity_id,
-            )
-
-        return None
 
     async def _discover_platform_entities(
         self, registry: er.EntityRegistry
