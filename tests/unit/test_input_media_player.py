@@ -919,6 +919,57 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         assert "media_player.output_2" not in result["result"]
 
     @pytest.mark.asyncio
+    async def test_get_joinable_matches_linked_entity_name_after_rename(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Include outputs whose source matches the linked entity's current name."""
+        input_media_player.hass = mock_hass
+        input_media_player.entity_id = "media_player.input_1"
+        # Simulate the input entity keeping an old name while the linked entity was
+        # renamed
+        input_media_player._attr_name = "Old Name"
+        input_media_player.input.linked_entity_id = "media_player.linked"
+
+        # Mock registry
+        mock_registry = MagicMock()
+        output_entry = MagicMock()
+        output_entry.entity_id = "media_player.output_1"
+        output_entry.platform = DOMAIN
+        output_entry.domain = "media_player"
+
+        mock_registry.entities = {
+            "abc": output_entry,
+        }
+        mock_hass.data[er.DATA_REGISTRY] = mock_registry
+
+        # Output reports the new linked name as its source
+        output_state = MagicMock()
+        output_state.attributes = {
+            "device_class": "speaker",
+            "source": "New Name",
+        }
+
+        # Linked entity state reflects the new name
+        linked_state = MagicMock()
+        linked_state.name = "New Name"
+        linked_state.attributes = {
+            "supported_features": 0,
+        }
+
+        def state_getter(entity_id: str) -> MagicMock | None:
+            if entity_id == "media_player.output_1":
+                return output_state
+            if entity_id == "media_player.linked":
+                return linked_state
+            return None
+
+        mock_hass.states.get = MagicMock(side_effect=state_getter)
+
+        result = await input_media_player.async_get_groupable_players()
+
+        assert "media_player.output_1" in result["result"]
+
+    @pytest.mark.asyncio
     async def test_get_joinable_returns_triad_only_when_linked_lacks_grouping(
         self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
     ) -> None:

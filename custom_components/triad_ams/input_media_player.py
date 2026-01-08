@@ -378,6 +378,13 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
         joinable = []
         registry = er.async_get(self.hass)
+        linked_state = None
+        linked_input_name = None
+
+        if self.input.linked_entity_id:
+            linked_state = self.hass.states.get(self.input.linked_entity_id)
+            if linked_state:
+                linked_input_name = linked_state.name
 
         # Get all Triad AMS output entities
         triad_outputs = [
@@ -404,23 +411,24 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
 
             # Include output if:
             # 1. It has no source (not playing anything), OR
-            # 2. Its source matches this input's name (already playing this input)
-            if current_source is None or current_source == self._attr_name:
+            # 2. Its source matches this input's name (already playing this input), OR
+            # 3. Its source matches the current linked entity name (if it changed)
+            if (
+                current_source is None
+                or current_source == self._attr_name
+                or (linked_input_name and current_source == linked_input_name)
+            ):
                 joinable.append(output_id)
 
         # Add platform entities from linked player if available
-        if self.input.linked_entity_id:
-            linked_state = self.hass.states.get(self.input.linked_entity_id)
-            if linked_state:
-                # Only proceed if linked entity supports GROUPING feature
-                supported_features = linked_state.attributes.get(
-                    "supported_features", 0
-                )
-                if not (supported_features & MediaPlayerEntityFeature.GROUPING):
-                    return {"result": joinable}
+        if self.input.linked_entity_id and linked_state:
+            # Only proceed if linked entity supports GROUPING feature
+            supported_features = linked_state.attributes.get("supported_features", 0)
+            if not (supported_features & MediaPlayerEntityFeature.GROUPING):
+                return {"result": joinable}
 
-                # Discover platform entities from same platform as linked entity
-                joinable.extend(await self._discover_platform_entities(registry))
+            # Discover platform entities from same platform as linked entity
+            joinable.extend(await self._discover_platform_entities(registry))
 
         return {"result": joinable}
 
