@@ -810,6 +810,9 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity will be removed from Home Assistant: clean up."""
+        if self._linked_unsub is not None:
+            self._linked_unsub()
+            self._linked_unsub = None
         if self._output_unsub is not None:
             self._output_unsub()
             self._output_unsub = None
