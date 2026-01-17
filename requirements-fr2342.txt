@@ -1,0 +1,12 @@
+colorlog==6.10.1
+homeassistant @ git+https://github.com/dan-s-github/homeassistant-core@feature/get-groupable-players-2342
+home-assistant-frontend @ file:///workspaces/homeassistant-triad-ams/homeassistant-frontend
+litellm>=1.80.16
+pip>=21.3.1
+pre_commit==4.5.1
+pycares>=5.0.0,<6
+pytest>=7.4.0
+pytest-asyncio==1.2.0
+pytest-cov==7.0.0
+pytest-timeout>=2.1.0
+ruff==0.14.11
