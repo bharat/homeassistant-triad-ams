@@ -724,6 +724,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Return the artwork URL from the linked source, if any."""
         return self._linked_attr("entity_picture")
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose Triad channel metadata for easier identification."""
+        return {
+            "output_channel": self.output.number,
+            "input_channel": self.output.source,
+        }
+
     # ---- Core media player properties and commands ----
     @property
     def available(self) -> bool:

@@ -5,7 +5,6 @@ __pycache__
 */build/*
 */dist/*
 
-
 # misc
 .coverage
 .vscode
@@ -13,7 +12,9 @@ coverage.xml
 .ruff_cache
 logs
 
-
 # Home Assistant configuration
 config/*
 !config/configuration.yaml
+
+# AI related
+.claude
