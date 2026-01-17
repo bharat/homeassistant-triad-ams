@@ -821,6 +821,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
                 self.output.number,
             )
             await self.output.set_source(input_id)
+            self._sync_group_members_from_source()
             # Update link subscription first so derived attributes reflect
             # the new linked source on this state write.
             self._update_link_subscription()
@@ -962,5 +963,6 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         """Leave any current group by disconnecting from the source."""
         _LOGGER.info("Unjoining output %d from group", self.output.number)
         await self.output.turn_off()
+        self._sync_group_members_from_source()
         self._update_link_subscription()
         self.async_write_ha_state()
