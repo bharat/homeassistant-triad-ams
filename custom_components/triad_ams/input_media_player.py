@@ -246,6 +246,20 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         """Set the list of group members."""
         self._group_members = members
 
+    def add_group_member(self, entity_id: str) -> None:
+        """Add a Triad output entity to the group member list if missing."""
+        if entity_id in self._group_members:
+            return
+        self._group_members.append(entity_id)
+        self.async_write_ha_state()
+
+    def remove_group_member(self, entity_id: str) -> None:
+        """Remove a Triad output entity from the group member list if present."""
+        if entity_id not in self._group_members:
+            return
+        self._group_members.remove(entity_id)
+        self.async_write_ha_state()
+
     @property
     def group_leader(self) -> bool:
         """Return whether input is a group leader."""

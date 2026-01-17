@@ -228,8 +228,12 @@ def _create_output_entities(
     for output in outputs:
         linked_input_id = _find_linked_input(output, input_links_opt, input_entities)
         entity = TriadAmsMediaPlayer(
-            output, entry, input_links_opt, input_player_entity_id=linked_input_id
+            output,
+            entry,
+            input_links_opt,
+            input_player_entity_id=linked_input_id,
         )
+        entity.set_input_entities(input_entities)
         output_entities.append(entity)
     return output_entities
 
@@ -580,7 +584,9 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         self.output = output
         self._entry = entry
         self._input_links = input_links
+        self._input_entities: dict[int, TriadAmsInputMediaPlayer] = {}
         self._input_player_entity_id = input_player_entity_id
+        self._last_group_input: int | None = None
         self._linked_entity_id: str | None = None
         self._linked_unsub: callable | None = None
         self._output_unsub: callable | None = None
@@ -613,6 +619,12 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
             "manufacturer": "Triad",
             "model": "Audio Matrix",
         }
+
+    def set_input_entities(
+        self, input_entities: dict[int, TriadAmsInputMediaPlayer]
+    ) -> None:
+        """Attach input entities for grouping synchronization."""
+        self._input_entities = input_entities
 
     @property
     def input_player_entity_id(self) -> str | None:
@@ -663,7 +675,26 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     def _handle_output_poll_update(self) -> None:
         """Handle updates from the rolling poll (volume/mute/source changes)."""
         self._update_link_subscription()
+        self._sync_group_members_from_source()
         self.async_write_ha_state()
+
+    @callback
+    def _sync_group_members_from_source(self) -> None:
+        """Ensure this output is grouped with the input entity for its source."""
+        if self.hass is None or not self.entity_id:
+            return
+        source = self.output.source
+        if source == self._last_group_input:
+            return
+        if self._last_group_input is not None:
+            previous_entity = self._input_entities.get(self._last_group_input)
+            if previous_entity is not None:
+                previous_entity.remove_group_member(self.entity_id)
+        if source is not None:
+            input_entity = self._input_entities.get(source)
+            if input_entity is not None:
+                input_entity.add_group_member(self.entity_id)
+        self._last_group_input = source
 
     @callback
     def _update_availability(self, *, is_available: bool) -> None:
