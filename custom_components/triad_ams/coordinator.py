@@ -46,6 +46,7 @@ class TriadCoordinatorConfig:
     input_count: int
     min_send_interval: float = 0.15
     poll_interval: float = 30.0
+    protocol_debug: bool = False
 
 
 class TriadCoordinator:
@@ -70,7 +71,9 @@ class TriadCoordinator:
         self._conn = (
             connection
             if connection is not None
-            else TriadConnection(host_val, port_val)
+            else TriadConnection(
+                host_val, port_val, protocol_debug=config.protocol_debug
+            )
         )
         self._queue: asyncio.Queue[_Command] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
@@ -145,6 +148,10 @@ class TriadCoordinator:
     def clear_input_link_unsubs(self) -> None:
         """Clear all input link unsubscribe functions."""
         self._input_link_unsubs.clear()
+
+    def set_protocol_debug(self, *, enabled: bool) -> None:
+        """Enable or disable protocol-level logging on the connection."""
+        self._conn.set_protocol_debug(enabled=enabled)
 
     def _notify_availability_listeners(self, *, is_available: bool) -> None:
         """Notify all listeners of availability change."""
@@ -221,6 +228,11 @@ class TriadCoordinator:
                 self._last_send_time = asyncio.get_running_loop().time()
                 if not cmd.future.done():
                     cmd.future.set_result(result)
+            except asyncio.CancelledError:
+                # Coordinator is shutting down; don't treat as a network failure.
+                if not cmd.future.done():
+                    cmd.future.cancel()
+                raise
             except NETWORK_EXCEPTIONS as exc:
                 # Log, drop transport, attempt quick reconnect, and propagate error.
                 _LOGGER.warning(

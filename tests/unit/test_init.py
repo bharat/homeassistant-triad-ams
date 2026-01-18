@@ -21,6 +21,8 @@ def hass() -> MagicMock:
     """Create a mock Home Assistant instance."""
     hass = MagicMock(spec=HomeAssistant)
     hass.config_entries = MagicMock()
+    hass.services = MagicMock()
+    hass.services.async_register = MagicMock()
     hass.config_entries.async_forward_entry_setups = create_async_mock_method(
         return_value=True
     )

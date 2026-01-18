@@ -131,6 +131,10 @@ Limitations / Roadmap
 
 Troubleshooting
 ---------------
+- Need protocol-level logging?
+  - Enable the integration logger in `configuration.yaml`:
+    - `logger.logs.custom_components.triad_ams: debug`
+  - Toggle at runtime via the `triad_ams.set_protocol_debug` service (`enabled: true/false`).
 - No inputs in the source list?
   - Make sure the inputs are marked active in Options
 - Metadata not shown?
