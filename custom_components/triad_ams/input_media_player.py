@@ -225,6 +225,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         """Return combined group members from linked entity and output entities."""
         members = list(self._group_members) if self._group_members else []
         _LOGGER.debug("%s - Current group members: %s", self._attr_name, members)
+        seen = set(members)
 
         # Add linked entity's group members
         if self.input.linked_entity_id and self.hass is not None:
@@ -237,7 +238,11 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                         self._attr_name,
                         linked_members,
                     )
-                    members.extend(linked_members)
+                    for member in linked_members:
+                        if member in seen:
+                            continue
+                        seen.add(member)
+                        members.append(member)
 
         return members if members else None
 

@@ -157,6 +157,33 @@ class TestTriadAmsInputMediaPlayerGroupMembers:
 
         assert members == ["media_player.local_1"]
 
+    def test_group_members_deduplicates_overlap(
+        self, input_media_player: TriadAmsInputMediaPlayer, mock_hass: MagicMock
+    ) -> None:
+        """Overlapping members between local and linked lists are de-duplicated."""
+        input_media_player._group_members = [
+            "media_player.output_1",
+            "media_player.output_2",
+        ]
+        input_media_player.input.linked_entity_id = "media_player.linked"
+        linked_state = MagicMock()
+        linked_state.attributes = {
+            "group_members": [
+                "media_player.output_2",
+                "media_player.output_3",
+            ]
+        }
+        mock_hass.states.get.return_value = linked_state
+        input_media_player.hass = mock_hass
+
+        members = input_media_player.group_members
+
+        assert members == [
+            "media_player.output_1",
+            "media_player.output_2",
+            "media_player.output_3",
+        ]
+
 
 class TestTriadAmsInputMediaPlayerProxyCommands:
     """Test media playback command proxying to linked entity."""
