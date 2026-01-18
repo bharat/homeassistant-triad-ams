@@ -184,6 +184,57 @@ class TestTriadAmsInputMediaPlayerGroupMembers:
             "media_player.output_3",
         ]
 
+    def test_group_members_updates_on_entity_rename(
+        self, input_media_player: TriadAmsInputMediaPlayer
+    ) -> None:
+        """Renamed output entities should update cached group members."""
+        input_media_player._group_members = [
+            "media_player.triad_ams_output_5",
+            "media_player.kitchen",
+        ]
+        input_media_player.hass = MagicMock()
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        event = MagicMock()
+        event.data = {
+            "action": "update",
+            "entity_id": "media_player.main_patio",
+            "old_entity_id": "media_player.triad_ams_output_5",
+            "changes": {"entity_id": "media_player.main_patio"},
+        }
+
+        input_media_player._handle_entity_registry_updated(event)
+
+        assert input_media_player.group_members == [
+            "media_player.main_patio",
+            "media_player.kitchen",
+        ]
+
+    def test_group_members_rename_deduplicates_when_new_exists(
+        self, input_media_player: TriadAmsInputMediaPlayer
+    ) -> None:
+        """Rename events should not leave duplicate members."""
+        input_media_player._group_members = [
+            "media_player.triad_ams_output_5",
+            "media_player.main_patio",
+        ]
+        input_media_player.hass = MagicMock()
+        input_media_player.entity_id = "media_player.input_1"
+        input_media_player.async_write_ha_state = MagicMock()
+
+        event = MagicMock()
+        event.data = {
+            "action": "update",
+            "entity_id": "media_player.main_patio",
+            "old_entity_id": "media_player.triad_ams_output_5",
+            "changes": {"entity_id": "media_player.main_patio"},
+        }
+
+        input_media_player._handle_entity_registry_updated(event)
+
+        assert input_media_player.group_members == ["media_player.main_patio"]
+
 
 class TestTriadAmsInputMediaPlayerProxyCommands:
     """Test media playback command proxying to linked entity."""

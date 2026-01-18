@@ -158,6 +158,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         self._linked_unsub: callable | None = None
         self._attr_available = True  # Track availability (Silver requirement)
         self._availability_unsub: callable | None = None
+        self._registry_unsub: callable | None = None
 
     @callback
     def _handle_linked_state_change(self, _event: object) -> None:
@@ -349,6 +350,12 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                 self._update_availability
             )
 
+        # Track entity registry updates to handle renamed group members
+        if self.hass is not None:
+            self._registry_unsub = self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_updated
+            )
+
     async def async_will_remove_from_hass(self) -> None:
         """Unsubscribe from linked entity state changes and availability updates."""
         if self._linked_unsub is not None:
@@ -357,6 +364,33 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
         if self._availability_unsub is not None:
             self._availability_unsub()
             self._availability_unsub = None
+        if self._registry_unsub is not None:
+            self._registry_unsub()
+            self._registry_unsub = None
+
+    @callback
+    def _handle_entity_registry_updated(self, event: Any) -> None:
+        """Update cached group members if an entity is renamed."""
+        data = event.data
+        if data.get("action") != "update":
+            return
+        old_entity_id = data.get("old_entity_id")
+        new_entity_id = data.get("entity_id")
+        if not old_entity_id or not new_entity_id:
+            return
+        if old_entity_id not in self._group_members:
+            return
+
+        seen: set[str] = set()
+        updated: list[str] = []
+        for member in self._group_members:
+            updated_member = new_entity_id if member == old_entity_id else member
+            if updated_member in seen:
+                continue
+            seen.add(updated_member)
+            updated.append(updated_member)
+        self._group_members = updated
+        self.async_write_ha_state()
 
     async def async_get_groupable_players(self) -> dict[str, Any]:
         """
