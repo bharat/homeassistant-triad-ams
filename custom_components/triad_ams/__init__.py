@@ -56,7 +56,7 @@ async def async_setup(_hass: HomeAssistant, _config: ConfigType) -> bool:
         func="async_get_groupable_players",
         supports_response=SupportsResponse.ONLY,
     )
-    
+
     async def _handle_set_protocol_debug(call: service.ServiceCall) -> None:
         enabled = bool(call.data[ATTR_PROTOCOL_DEBUG_ENABLED])
         entries = _hass.config_entries.async_entries(DOMAIN)
