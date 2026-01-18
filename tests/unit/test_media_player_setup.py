@@ -22,7 +22,7 @@ from custom_components.triad_ams.media_player import (
     _update_input_name_from_state,
     async_setup_entry,
 )
-from custom_components.triad_ams.models import TriadAmsOutput
+from custom_components.triad_ams.models import TriadAmsInput, TriadAmsOutput
 from tests.conftest import create_async_mock_method
 
 
@@ -457,7 +457,11 @@ class TestCleanupStaleEntities:
             return mock_registry
 
         _cleanup_stale_entities(
-            mock_hass, mock_config_entry, outputs, entity_registry_getter=get_registry
+            mock_hass,
+            mock_config_entry,
+            [],
+            outputs,
+            entity_registry_getter=get_registry,
         )
 
         mock_registry.async_remove.assert_called_once_with(
@@ -486,7 +490,11 @@ class TestCleanupStaleEntities:
             return mock_registry
 
         _cleanup_stale_entities(
-            mock_hass, mock_config_entry, outputs, entity_registry_getter=get_registry
+            mock_hass,
+            mock_config_entry,
+            [],
+            outputs,
+            entity_registry_getter=get_registry,
         )
 
         mock_registry.async_remove.assert_not_called()
@@ -509,7 +517,72 @@ class TestCleanupStaleEntities:
             return mock_registry
 
         _cleanup_stale_entities(
-            mock_hass, mock_config_entry, outputs, entity_registry_getter=get_registry
+            mock_hass,
+            mock_config_entry,
+            [],
+            outputs,
+            entity_registry_getter=get_registry,
+        )
+
+    def test_cleanup_stale_entities_removes_stale_input(
+        self, mock_hass: MagicMock, mock_config_entry: MagicMock
+    ) -> None:
+        """Test that stale input proxy entities are removed."""
+        inputs: list[TriadAmsInput] = []  # No linked inputs remain
+        outputs: list[TriadAmsOutput] = []
+
+        mock_registry = MagicMock(spec=er.EntityRegistry)
+        stale_input = MagicMock()
+        stale_input.platform = "triad_ams"
+        stale_input.config_entry_id = mock_config_entry.entry_id
+        stale_input.unique_id = f"{mock_config_entry.entry_id}_input_3"
+        stale_input.entity_id = "media_player.triad_ams_input_3"
+        mock_registry.entities = {"media_player.triad_ams_input_3": stale_input}
+        mock_registry.async_remove = MagicMock()
+
+        def get_registry(_hass: HomeAssistant) -> er.EntityRegistry:
+            return mock_registry
+
+        _cleanup_stale_entities(
+            mock_hass,
+            mock_config_entry,
+            inputs,
+            outputs,
+            entity_registry_getter=get_registry,
+        )
+
+        mock_registry.async_remove.assert_called_once_with(
+            "media_player.triad_ams_input_3"
+        )
+
+    def test_cleanup_stale_entities_keeps_linked_input(
+        self, mock_hass: MagicMock, mock_config_entry: MagicMock
+    ) -> None:
+        """Test that active linked input entities are preserved."""
+        linked_input = MagicMock(spec=TriadAmsInput)
+        linked_input.number = 1
+        linked_input.linked_entity_id = "media_player.input1"
+        inputs = [linked_input]
+        outputs: list[TriadAmsOutput] = []
+
+        mock_registry = MagicMock(spec=er.EntityRegistry)
+        input_entity = MagicMock()
+        input_entity.platform = "triad_ams"
+        input_entity.config_entry_id = mock_config_entry.entry_id
+        input_entity.unique_id = f"{mock_config_entry.entry_id}_input_1"
+        input_entity.entity_id = "media_player.triad_ams_input_1"
+        mock_registry.entities = {"media_player.triad_ams_input_1": input_entity}
+        mock_registry.async_remove = MagicMock()
+
+        def get_registry(_hass: HomeAssistant) -> er.EntityRegistry:
+            return mock_registry
+
+        _cleanup_stale_entities(
+            mock_hass,
+            mock_config_entry,
+            inputs,
+            outputs,
+            entity_registry_getter=get_registry,
         )
 
         mock_registry.async_remove.assert_not_called()
