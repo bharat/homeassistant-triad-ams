@@ -23,7 +23,9 @@ from .coordinator import TriadCoordinator as TriadCoordinatorType
 PLATFORMS = ["media_player"]
 
 SERVICE_TURN_ON_WITH_SOURCE = "turn_on_with_source"
+SERVICE_SET_PROTOCOL_DEBUG = "set_protocol_debug"
 ATTR_INPUT_ENTITY_ID = "input_entity_id"
+ATTR_PROTOCOL_DEBUG_ENABLED = "enabled"
 # Target minor version for migration
 TARGET_MINOR_VERSION = 4
 
@@ -41,6 +43,35 @@ async def async_setup(_hass: HomeAssistant, _config: ConfigType) -> bool:
             vol.Required(ATTR_INPUT_ENTITY_ID): cv.entity_id,
         },
         func="async_turn_on_with_source",
+    )
+
+    async def _handle_set_protocol_debug(call: service.ServiceCall) -> None:
+        enabled = bool(call.data[ATTR_PROTOCOL_DEBUG_ENABLED])
+        entries = _hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            _LOGGER.error("Protocol debug toggle: no Triad AMS entries found")
+            return
+        for entry in entries:
+            new_options = {**entry.options, "protocol_debug": enabled}
+            _hass.config_entries.async_update_entry(entry, options=new_options)
+            coordinator = getattr(entry, "runtime_data", None)
+            if isinstance(coordinator, TriadCoordinatorType):
+                coordinator.set_protocol_debug(enabled=enabled)
+        _LOGGER.info(
+            "Protocol debug logging %s for entry %s",
+            "enabled" if enabled else "disabled",
+            "all",
+        )
+
+    _hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_PROTOCOL_DEBUG,
+        _handle_set_protocol_debug,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_PROTOCOL_DEBUG_ENABLED): cv.boolean,
+            }
+        ),
     )
 
     return True
@@ -83,10 +114,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data["host"]
     port = entry.data["port"]
     input_count = entry.data.get("input_count")
+    protocol_debug = entry.options.get("protocol_debug", False)
     config = TriadCoordinatorConfig(
         host=host,
         port=port,
         input_count=input_count,
+        protocol_debug=protocol_debug,
     )
     coordinator = TriadCoordinator(config)
     entry.runtime_data = coordinator

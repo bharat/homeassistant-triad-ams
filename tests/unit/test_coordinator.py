@@ -1,6 +1,7 @@
 """Unit tests for TriadCoordinator."""
 
 import asyncio
+import contextlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from custom_components.triad_ams.coordinator import (
     TriadCoordinator,
     TriadCoordinatorConfig,
+    _Command,
 )
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
@@ -250,6 +252,36 @@ class TestTriadCoordinatorPacing:
 
 class TestTriadCoordinatorErrorHandling:
     """Test error handling."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_worker_does_not_reconnect(
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
+    ) -> None:
+        """Test that worker cancellation does not trigger reconnect logic."""
+        await coordinator.start()
+
+        async def op(_conn):  # noqa: ANN001, ANN202
+            await asyncio.sleep(10)
+
+        future = asyncio.get_running_loop().create_future()
+        await coordinator._queue.put(_Command(op=op, future=future))
+        await asyncio.sleep(0)
+
+        worker = coordinator._worker
+        assert worker is not None
+        worker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker
+
+        # Cancellation should not be treated as a network failure.
+        mock_connection.close_nowait.assert_not_called()
+        assert future.cancelled()
+
+        poll_task = coordinator._poll_task
+        if poll_task is not None:
+            poll_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await poll_task
 
     @pytest.mark.asyncio
     async def test_oserror_propagates(

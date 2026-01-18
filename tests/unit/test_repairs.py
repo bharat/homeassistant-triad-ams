@@ -1,6 +1,5 @@
 """Unit tests for repair issues (Gold requirement)."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -88,16 +87,6 @@ class TestRepairIssues:
         ) as mock_create_issue:
             mock_create_issue.return_value = None
 
-            # Make async_create_task actually schedule the coroutine
-            created_tasks = []
-
-            def async_create_task(coro):  # noqa: ANN001, ANN202
-                task = asyncio.create_task(coro)
-                created_tasks.append(task)
-                return task
-
-            mock_hass.async_create_task = MagicMock(side_effect=async_create_task)
-
             # Setup repair platform
             assert repairs is not None
             await repairs.async_setup_entry(mock_hass, mock_config_entry_repair)
@@ -114,19 +103,19 @@ class TestRepairIssues:
             coordinator_repair._available = False
             coordinator_repair._notify_availability_listeners(is_available=False)
 
-            # Wait for all created tasks to complete
-            # Need to give a moment for the task to be created
-            await asyncio.sleep(0.01)
-            if created_tasks:
-                await asyncio.gather(*created_tasks, return_exceptions=True)
-
             # Verify issue was created
-            # This will fail until repair platform creates issues
-            # Check if async_create_task was called
-            assert mock_hass.async_create_task.called, (
-                "async_create_task was not called"
+            mock_create_issue.assert_called_once_with(
+                mock_hass,
+                repairs.DOMAIN,
+                repairs.ISSUE_ID_UNAVAILABLE,
+                is_fixable=False,
+                severity="error",
+                translation_key="device_unavailable",
+                translation_placeholders={
+                    "entry_title": mock_config_entry_repair.title,
+                },
             )
-            mock_create_issue.assert_called()
+            assert not getattr(mock_hass, "async_create_task", MagicMock()).called
 
     @pytest.mark.asyncio
     async def test_repair_issue_resolved_on_available(
@@ -151,19 +140,6 @@ class TestRepairIssues:
             mock_create_issue.return_value = None
             mock_delete_issue.return_value = None
 
-            # Make async_create_task actually schedule the coroutine
-            created_tasks = []
-
-            def async_create_task_side_effect(coro):  # noqa: ANN001, ANN202
-                task = asyncio.create_task(coro)
-                created_tasks.append(task)
-                return task
-
-            mock_hass.async_create_task = MagicMock(
-                side_effect=async_create_task_side_effect
-            )
-            mock_hass.created_tasks = created_tasks
-
             # Setup repair platform
             assert repairs is not None
             await repairs.async_setup_entry(mock_hass, mock_config_entry_repair)
@@ -179,20 +155,12 @@ class TestRepairIssues:
             # Simulate device becoming unavailable then available
             coordinator_repair._available = False
             coordinator_repair._notify_availability_listeners(is_available=False)
-            # Wait for tasks
-            if created_tasks:
-                await asyncio.gather(*created_tasks, return_exceptions=True)
-                created_tasks.clear()
-
             coordinator_repair._available = True
             coordinator_repair._notify_availability_listeners(is_available=True)
-            # Wait for tasks
-            if created_tasks:
-                await asyncio.gather(*created_tasks, return_exceptions=True)
 
             # Verify issue was deleted when device became available
-            # This will fail until repair platform deletes issues
-            assert mock_hass.async_create_task.called, (
-                "async_create_task was not called"
+            mock_create_issue.assert_called_once()
+            mock_delete_issue.assert_called_once_with(
+                mock_hass, repairs.DOMAIN, repairs.ISSUE_ID_UNAVAILABLE
             )
-            mock_delete_issue.assert_called()
+            assert not getattr(mock_hass, "async_create_task", MagicMock()).called

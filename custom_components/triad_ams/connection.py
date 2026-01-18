@@ -28,25 +28,52 @@ _LOGGER = logging.getLogger(__name__)
 class TriadConnection:
     """Manage a persistent connection to the Triad AMS device."""
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, *, protocol_debug: bool = False) -> None:
         """Initialize a persistent connection to the Triad AMS device."""
         self.host = host
         self.port = port
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
+        self._protocol_debug = protocol_debug
+
+    def _log_protocol(self, msg: str, *args: object) -> None:
+        """Emit protocol logs when enabled via options."""
+        if self._protocol_debug:
+            _LOGGER.debug(msg, *args)
+
+    def set_protocol_debug(self, *, enabled: bool) -> None:
+        """Enable or disable protocol-level logging."""
+        self._protocol_debug = enabled
+
+    @staticmethod
+    def _summarize_bytes(data: bytes, *, max_bytes: int = 16) -> str:
+        """Return a compact hex summary of a payload."""
+        if not data:
+            return "len=0"
+        prefix = data[:max_bytes].hex()
+        suffix = "..." if len(data) > max_bytes else ""
+        return f"len={len(data)} hex={prefix}{suffix}"
+
+    @staticmethod
+    def _summarize_text(text: str, *, max_len: int = 80) -> str:
+        """Return a compact, single-line summary of response text."""
+        compact = " ".join(text.split())
+        if len(compact) > max_len:
+            compact = f"{compact[:max_len]}..."
+        return compact
 
     async def connect(self) -> None:
         """Establish a connection to the Triad AMS device if not already connected."""
         if self._writer is not None:
-            _LOGGER.debug("connect(): already connected; skipping")
+            self._log_protocol("connect(): already connected; skipping")
             return
-        _LOGGER.debug("connect(): begin to %s:%s", self.host, self.port)
+        self._log_protocol("connect(): begin to %s:%s", self.host, self.port)
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
-        _LOGGER.info("Connected to Triad AMS at %s:%s", self.host, self.port)
+        self._log_protocol("connect(): connected to %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
         await asyncio.sleep(POST_CONNECT_DELAY)
-        _LOGGER.debug("connect(): ready (post-sleep)")
+        self._log_protocol("connect(): ready (post-sleep)")
 
     async def disconnect(self) -> None:
         """Close the connection to the Triad AMS device if open."""
@@ -55,11 +82,11 @@ class TriadConnection:
             await self._writer.wait_closed()
             self._reader = None
             self._writer = None
-            _LOGGER.info("Disconnected from Triad AMS")
+            self._log_protocol("disconnect(): closed connection")
 
     def close_nowait(self) -> None:
         """Close the transport without awaiting shutdown (non-blocking)."""
-        _LOGGER.debug(
+        self._log_protocol(
             "close_nowait(): writer is %s", "present" if self._writer else "None"
         )
         # Note: We don't acquire the lock here because:
@@ -78,30 +105,26 @@ class TriadConnection:
                 self._writer.close()
         self._reader = None
         self._writer = None
-        _LOGGER.debug("close_nowait(): cleared reader/writer")
+        self._log_protocol("close_nowait(): cleared reader/writer")
 
     async def _ensure_connection_for_send(self) -> None:
         """Ensure connection is established before sending."""
         if self._writer is None or self._reader is None:
-            _LOGGER.debug("_send_command(): transport missing; calling connect()")
+            self._log_protocol("_send_command(): transport missing; calling connect()")
             await self.connect()
 
     async def _write_command_bytes(
         self, writer: "StreamWriter", command: bytes
     ) -> None:
         """Write command bytes to the connection."""
-        _LOGGER.debug("Sending raw bytes: %s", command.hex())
-        _LOGGER.debug("_send_command(): writing %d bytes", len(command))
+        self._log_protocol("TX %s", self._summarize_bytes(command))
         writer.write(command)
-        _LOGGER.debug("_send_command(): before drain()")
         await writer.drain()
-        _LOGGER.debug("_send_command(): after drain()")
         # Add a very small delay for device tolerance
         await asyncio.sleep(DEVICE_COMMAND_DELAY)
 
     async def _read_response_bytes(self, reader: "StreamReader") -> bytes:
         """Read response bytes from the connection."""
-        _LOGGER.debug("_send_command(): awaiting response")
         # Check connection state before reading - if closed, fail immediately
         if self._reader is None or self._writer is None:
             msg = "Connection closed"
@@ -126,8 +149,7 @@ class TriadConnection:
         except OSError:
             # Re-raise OSError as-is (might be from socket shutdown)
             raise
-        _LOGGER.debug("_send_command(): received %d bytes", len(response))
-        _LOGGER.debug("Raw response: %r", response)
+        self._log_protocol("RX %s", self._summarize_bytes(response))
         return response
 
     def _validate_response(
@@ -142,9 +164,9 @@ class TriadConnection:
                 command.hex(),
             )
             # Proactively drop the connection without blocking
-            _LOGGER.debug("_send_command(): before close_nowait() on error")
+            self._log_protocol("_send_command(): before close_nowait() on error")
             self.close_nowait()
-            _LOGGER.debug("_send_command(): after close_nowait() on error")
+            self._log_protocol("_send_command(): after close_nowait() on error")
             msg = "Triad command error or empty response"
             raise OSError(msg)
 
@@ -155,9 +177,9 @@ class TriadConnection:
         Adds a small inter-command delay, logs raw traffic, and applies a
         reasonable timeout to reads.
         """
-        _LOGGER.debug("_send_command(): waiting for lock")
+        self._log_protocol("_send_command(): waiting for lock")
         async with self._lock:
-            _LOGGER.debug("_send_command(): acquired lock")
+            self._log_protocol("_send_command(): acquired lock")
             await self._ensure_connection_for_send()
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
@@ -165,6 +187,7 @@ class TriadConnection:
             await self._write_command_bytes(writer, command)
             response = await self._read_response_bytes(reader)
             text = response.decode(errors="replace").strip("\x00").strip()
+            self._log_protocol("RX text=%s", self._summarize_text(text))
             # Evaluate the first (and only) frame. If it doesn't match the
             # expected pattern, allow exactly one skip for an unsolicited
             # AudioSense event, then re-evaluate the next frame.
@@ -178,10 +201,12 @@ class TriadConnection:
                     text,
                     re.IGNORECASE,
                 ):
-                    _LOGGER.debug("Skipping unsolicited AudioSense event: %s", text)
+                    self._log_protocol(
+                        "Skipping unsolicited AudioSense event: %s", text
+                    )
                     response = await self._read_response_bytes(reader)
-                    _LOGGER.debug("Raw response (post-AudioSense): %r", response)
                     text = response.decode(errors="replace").strip("\x00").strip()
+                    self._log_protocol("RX text=%s", self._summarize_text(text))
                 # After optional skip, if still not matching -> error
                 if text and not re.search(expect, text, re.IGNORECASE):
                     _LOGGER.warning("Unexpected response: %s", text)
@@ -219,11 +244,9 @@ class TriadConnection:
         val = max(0, min(val, VOLUME_STEPS))
         cmd = bytearray.fromhex("FF5504031E") + bytes([output_channel - 1, val])
         resp = await self._send_command(cmd, expect=r"Output\s+Volume|Volume\s*:")
-        _LOGGER.info(
-            "Set volume for output %d to %.2f (resp: %s)",
-            output_channel,
-            capped,
-            resp,
+        _LOGGER.info("Set volume for output %d to %.2f", output_channel, capped)
+        self._log_protocol(
+            "Set volume response for output %d: %s", output_channel, resp
         )
 
     async def get_output_volume(self, output_channel: int) -> float:
@@ -269,9 +292,8 @@ class TriadConnection:
         base = "FF55030317" if mute else "FF55030318"
         cmd = bytearray.fromhex(base) + bytes([output_channel - 1])
         resp = await self._send_command(cmd)
-        _LOGGER.info(
-            "Set mute for output %d to %s (resp: %s)", output_channel, mute, resp
-        )
+        _LOGGER.info("Set mute for output %d to %s", output_channel, mute)
+        self._log_protocol("Set mute response for output %d: %s", output_channel, resp)
 
     async def get_output_mute(self, output_channel: int) -> bool:
         """
@@ -313,12 +335,16 @@ class TriadConnection:
         resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
         if large:
             _LOGGER.info("Volume step up (large) for output %d", output_channel)
-            _LOGGER.debug(
-                "Volume step up (large) for output %d (resp: %s)", output_channel, resp
+            self._log_protocol(
+                "Volume step up (large) response for output %d: %s",
+                output_channel,
+                resp,
             )
         else:
-            _LOGGER.debug(
-                "Volume step up (small) for output %d (resp: %s)", output_channel, resp
+            self._log_protocol(
+                "Volume step up (small) response for output %d: %s",
+                output_channel,
+                resp,
             )
 
     async def volume_step_down(
@@ -331,14 +357,14 @@ class TriadConnection:
         resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
         if large:
             _LOGGER.info("Volume step down (large) for output %d", output_channel)
-            _LOGGER.debug(
-                "Volume step down (large) for output %d (resp: %s)",
+            self._log_protocol(
+                "Volume step down (large) response for output %d: %s",
                 output_channel,
                 resp,
             )
         else:
-            _LOGGER.debug(
-                "Volume step down (small) for output %d (resp: %s)",
+            self._log_protocol(
+                "Volume step down (small) response for output %d: %s",
                 output_channel,
                 resp,
             )
@@ -360,8 +386,9 @@ class TriadConnection:
         )
         resp = await self._send_command(cmd, expect=r"Trigger|Set\s+.*")
         # Be tolerant of varying response strings
-        _LOGGER.info(
-            "Set output %d to input %d (resp: %s)",
+        _LOGGER.info("Set output %d to input %d", output_channel, input_channel)
+        self._log_protocol(
+            "Set output response for output %d -> input %d: %s",
             output_channel,
             input_channel,
             resp,
@@ -422,7 +449,8 @@ class TriadConnection:
             # Examples: zone1 off: FF5503055100, zone2 off: FF5503055101
             cmd = bytearray.fromhex(f"FF55030551{hex_zone}")
         resp = await self._send_command(cmd, expect=r"Max\s+Volume|0x|dB|Set\s+.*")
-        _LOGGER.info("Set trigger zone %d to %s (resp: %s)", zone, on, resp)
+        _LOGGER.info("Set trigger zone %d to %s", zone, on)
+        self._log_protocol("Set trigger zone response for zone %d: %s", zone, resp)
 
     async def disconnect_output(self, output_channel: int, input_count: int) -> None:
         """
@@ -439,8 +467,9 @@ class TriadConnection:
         resp = await self._send_command(cmd, expect=r"Start\s+Vol|0x|dB|Set\s+.*")
         # Tolerate varied responses and log outcome
         if "Audio Off" in resp:
-            _LOGGER.info("Disconnected output %d (resp: %s)", output_channel, resp)
+            _LOGGER.info("Disconnected output %d", output_channel)
         else:
-            _LOGGER.info(
-                "Requested disconnect for output %d (resp: %s)", output_channel, resp
-            )
+            _LOGGER.info("Requested disconnect for output %d", output_channel)
+        self._log_protocol(
+            "Disconnect output response for %d: %s", output_channel, resp
+        )

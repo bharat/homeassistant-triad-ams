@@ -15,3 +15,11 @@ turn_on_with_source:
             supported_features:
               - media_player.MediaPlayerEntityFeature.PLAY
               - media_player.MediaPlayerEntityFeature.PLAY_MEDIA
+set_protocol_debug:
+  description: "Enable or disable protocol-level logging for all Triad AMS entries."
+  fields:
+    enabled:
+      required: true
+      example: true
+      selector:
+        boolean:

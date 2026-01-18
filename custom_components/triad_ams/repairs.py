@@ -33,23 +33,19 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         """Handle coordinator availability changes."""
         if is_available:
             # Device is available, delete the issue if it exists
-            hass.async_create_task(
-                issue_registry.async_delete_issue(hass, DOMAIN, ISSUE_ID_UNAVAILABLE)
-            )
+            issue_registry.async_delete_issue(hass, DOMAIN, ISSUE_ID_UNAVAILABLE)
         else:
             # Device is unavailable, create a repair issue
-            hass.async_create_task(
-                issue_registry.async_create_issue(
-                    hass,
-                    DOMAIN,
-                    ISSUE_ID_UNAVAILABLE,
-                    is_fixable=False,
-                    severity="error",
-                    translation_key="device_unavailable",
-                    translation_placeholders={
-                        "entry_title": config_entry.title,
-                    },
-                )
+            issue_registry.async_create_issue(
+                hass,
+                DOMAIN,
+                ISSUE_ID_UNAVAILABLE,
+                is_fixable=False,
+                severity="error",
+                translation_key="device_unavailable",
+                translation_placeholders={
+                    "entry_title": config_entry.title,
+                },
             )
 
     # Subscribe to availability changes
