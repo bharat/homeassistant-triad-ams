@@ -2,6 +2,9 @@
   "services": {
     "turn_on_with_source": {
       "service": "mdi:power"
+    },
+    "get_groupable_players": {
+      "service": "mdi:speaker-multiple"
     }
   }
 }
