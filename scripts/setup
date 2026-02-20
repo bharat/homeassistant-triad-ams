@@ -7,3 +7,5 @@ cd "$(dirname "$0")/.."
 python3 -m pip install --upgrade pip -r requirements.txt
 curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo BINDIR=/usr/local/bin bash
 pre-commit install
+
+curl https://cursor.com/install -fsS | bash
