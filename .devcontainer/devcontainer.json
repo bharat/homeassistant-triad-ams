@@ -1,0 +1,57 @@
+{
+  "name": "bharat/homeassistant-triad-ams",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "postCreateCommand": "scripts/setup",
+  "forwardPorts": [
+    8123
+  ],
+  "portsAttributes": {
+    "8123": {
+      "label": "Home Assistant",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "github.vscode-pull-request-github",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ryanluker.vscode-coverage-gutters",
+        "openai.chatgpt",
+        "github.vscode-github-actions",
+        "SanjulaGanepola.github-local-actions"
+      ],
+      "settings": {
+        "files.eol": "\n",
+        "editor.tabSize": 4,
+        "editor.formatOnPaste": true,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": false,
+        "files.trimTrailingWhitespace": true,
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.autoImportCompletions": true,
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
+    }
+  },
+  "remoteEnv": {
+    "GIT_EDITOR": "cursor --wait"
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false
+    },
+    "ghcr.io/devcontainers-extra/features/apt-packages:1": {
+      "packages": "gh,ffmpeg,libpcap-dev,libturbojpeg0"
+    }
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ]
+}
