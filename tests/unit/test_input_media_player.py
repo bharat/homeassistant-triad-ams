@@ -487,10 +487,10 @@ class TestTriadAmsInputMediaPlayerGrouping:
         output2_entry.platform = DOMAIN
 
         mock_registry.async_get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.output_1": output1_entry,
                 "media_player.output_2": output2_entry,
-            }.get(entity_id)
+            }.get
         )
 
         mock_hass.services = MagicMock()
@@ -534,10 +534,10 @@ class TestTriadAmsInputMediaPlayerGrouping:
         sonos_entry.platform = "sonos"
 
         mock_registry.async_get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.triad_output": output_entry,
                 "media_player.sonos_speaker": sonos_entry,
-            }.get(entity_id)
+            }.get
         )
 
         mock_hass.services = MagicMock()
@@ -570,11 +570,11 @@ class TestTriadAmsInputMediaPlayerGrouping:
         sonos_speaker_entry.platform = "sonos"
 
         mock_registry.async_get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.triad_output": output_entry,
                 "media_player.sonos_main": sonos_main_entry,
                 "media_player.sonos_speaker": sonos_speaker_entry,
-            }.get(entity_id)
+            }.get
         )
 
         # Mock linked entity state with grouping support
@@ -583,9 +583,9 @@ class TestTriadAmsInputMediaPlayerGrouping:
             "supported_features": MediaPlayerEntityFeature.GROUPING
         }
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: linked_state
-            if entity_id == "media_player.sonos_main"
-            else None
+            side_effect=lambda entity_id: (
+                linked_state if entity_id == "media_player.sonos_main" else None
+            )
         )
 
         mock_hass.services = MagicMock()
@@ -636,20 +636,20 @@ class TestTriadAmsInputMediaPlayerGrouping:
         chromecast_speaker_entry.platform = "cast"
 
         mock_registry.async_get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.triad_output": output_entry,
                 "media_player.chromecast_main": chromecast_main_entry,
                 "media_player.chromecast_speaker": chromecast_speaker_entry,
-            }.get(entity_id)
+            }.get
         )
 
         # Mock linked entity WITHOUT grouping support
         linked_state = MagicMock()
         linked_state.attributes = {"supported_features": 0}  # No GROUPING feature
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: linked_state
-            if entity_id == "media_player.chromecast_main"
-            else None
+            side_effect=lambda entity_id: (
+                linked_state if entity_id == "media_player.chromecast_main" else None
+            )
         )
 
         mock_hass.services = MagicMock()
@@ -741,11 +741,11 @@ class TestTriadAmsInputMediaPlayerGrouping:
         cast_entry.platform = "cast"  # Wrong domain
 
         mock_registry.async_get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.triad_output": output_entry,
                 "media_player.sonos_main": sonos_main_entry,
                 "media_player.cast_speaker": cast_entry,
-            }.get(entity_id)
+            }.get
         )
 
         mock_hass.services = MagicMock()
@@ -831,10 +831,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.output_1": output1_state,
                 "media_player.output_2": output2_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -883,10 +883,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.output_1": output1_state,
                 "media_player.receiver": receiver_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -934,10 +934,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.output_1": output1_state,
                 "media_player.output_2": output2_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -985,10 +985,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.output_1": output1_state,
                 "media_player.output_2": output2_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -1080,10 +1080,10 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         }
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.no_grouping": linked_state,
                 "media_player.output_1": output1_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -1146,11 +1146,11 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         sonos_speaker2_state.attributes = {"device_class": "speaker"}
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.sonos_main": sonos_main_state,
                 "media_player.sonos_speaker_1": sonos_speaker1_state,
                 "media_player.sonos_speaker_2": sonos_speaker2_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()
@@ -1215,11 +1215,11 @@ class TestTriadAmsInputMediaPlayerGetJoinableGroupMembers:
         sonos_receiver_state.attributes = {"device_class": "receiver"}
 
         mock_hass.states.get = MagicMock(
-            side_effect=lambda entity_id: {
+            side_effect={
                 "media_player.sonos_main": sonos_main_state,
                 "media_player.sonos_speaker": sonos_speaker_state,
                 "media_player.sonos_receiver": sonos_receiver_state,
-            }.get(entity_id)
+            }.get
         )
 
         result = await input_media_player.async_get_groupable_players()

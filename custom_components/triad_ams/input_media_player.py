@@ -245,7 +245,7 @@ class TriadAmsInputMediaPlayer(MediaPlayerEntity):
                         seen.add(member)
                         members.append(member)
 
-        return members if members else None
+        return members or None
 
     @group_members.setter
     def group_members(self, members: list[str]) -> None:
