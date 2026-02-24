@@ -16,6 +16,9 @@
         },
         "input_not_active": {
             "message": "Input {input} is not active"
+        },
+        "invalid_group_member": {
+            "message": "Entity {entity_id} is not a valid group member"
         }
     },
     "services": {
@@ -28,6 +31,10 @@
                     "description": "The media player entity to use as the input source."
                 }
             }
+        },
+        "get_groupable_players": {
+            "name": "Get Groupable Players",
+            "description": "Get all speaker entities that can group with this input."
         }
     }
 }

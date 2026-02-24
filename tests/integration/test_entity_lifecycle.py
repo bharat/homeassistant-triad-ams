@@ -118,6 +118,10 @@ class TestEntityCleanup:
         self, mock_hass: MagicMock, mock_config_entry: MagicMock
     ) -> None:
         """Test cleanup of stale entities."""
+        inputs = [MagicMock()]
+        inputs[0].number = 1
+        inputs[0].linked_entity_id = "media_player.input1"
+
         # Create mock entity registry
         registry = MagicMock(spec=er.EntityRegistry)
         # Create mock entities
@@ -133,9 +137,23 @@ class TestEntityCleanup:
         entity2.unique_id = "test_entry_123_output_99"  # Stale
         entity2.entity_id = "media_player.test_output_99"
 
+        input_entity_active = MagicMock()
+        input_entity_active.platform = "triad_ams"
+        input_entity_active.config_entry_id = "test_entry_123"
+        input_entity_active.unique_id = "test_entry_123_input_1"
+        input_entity_active.entity_id = "media_player.test_input_1"
+
+        input_entity_stale = MagicMock()
+        input_entity_stale.platform = "triad_ams"
+        input_entity_stale.config_entry_id = "test_entry_123"
+        input_entity_stale.unique_id = "test_entry_123_input_99"
+        input_entity_stale.entity_id = "media_player.test_input_99"
+
         registry.entities = {
             "media_player.test_output_1": entity1,
             "media_player.test_output_99": entity2,
+            "media_player.test_input_1": input_entity_active,
+            "media_player.test_input_99": input_entity_stale,
         }
 
         # Create outputs (only output 1 is active)
@@ -146,12 +164,17 @@ class TestEntityCleanup:
         _cleanup_stale_entities(
             mock_hass,
             mock_config_entry,
+            inputs,
             outputs,
             entity_registry_getter=lambda _: registry,
         )
 
-        # Should remove stale entity
-        registry.async_remove.assert_called_once_with("media_player.test_output_99")
+        # Should remove stale output and input entities only
+        called_ids = {call.args[0] for call in registry.async_remove.call_args_list}
+        assert called_ids == {
+            "media_player.test_output_99",
+            "media_player.test_input_99",
+        }
 
     def test_remove_orphaned_devices(
         self, mock_hass: MagicMock, mock_config_entry: MagicMock

@@ -205,3 +205,78 @@ class TriadAmsOutput:
         """Refresh state and notify listeners."""
         await self.refresh()
         self._notify_listeners()
+
+
+class TriadAmsInput:
+    """
+    Represents an input and proxies a linked `media_player` entity.
+
+    Stores an optional linked entity id and provides helpers to read proxied
+    media attributes from Home Assistant state. The `hass` instance must be
+    supplied when reading attributes to keep the model decoupled for tests.
+    """
+
+    def __init__(
+        self,
+        number: int,
+        name: str,
+        coordinator: TriadCoordinator,
+        linked_entity_id: str | None = None,
+    ) -> None:
+        """
+        Create an input model.
+
+        Args:
+            number: 1-based input number.
+            name: Friendly name.
+            coordinator: Coordinator for availability tracking.
+            linked_entity_id: Optional linked `media_player` entity id.
+
+        """
+        self.number = number
+        self.name = name
+        self.linked_entity_id = linked_entity_id
+        self.coordinator = coordinator
+
+    def set_link(self, entity_id: str | None) -> None:
+        """Set or clear the linked entity id."""
+        self.linked_entity_id = entity_id
+
+    def _linked_state(self, hass: object) -> object | None:
+        if not self.linked_entity_id or hass is None:
+            return None
+        return hass.states.get(self.linked_entity_id)
+
+    def _linked_attr(self, hass: object, key: str) -> object | None:
+        st = self._linked_state(hass)
+        if not st:
+            return None
+        return st.attributes.get(key)
+
+    def media_title(self, hass: object) -> str | None:
+        """Return the current media title from the linked source, if any."""
+        return self._linked_attr(hass, "media_title")
+
+    def media_artist(self, hass: object) -> str | None:
+        """Return the media artist from the linked source, if any."""
+        return self._linked_attr(hass, "media_artist")
+
+    def media_album_name(self, hass: object) -> str | None:
+        """Return the media album from the linked source, if any."""
+        return self._linked_attr(hass, "media_album_name")
+
+    def media_duration(self, hass: object) -> int | None:
+        """Return the media duration (seconds) from the linked source, if any."""
+        return self._linked_attr(hass, "media_duration")
+
+    def media_content_id(self, hass: object) -> str | None:
+        """Return the media content id from the linked source, if any."""
+        return self._linked_attr(hass, "media_content_id")
+
+    def media_content_type(self, hass: object) -> str | None:
+        """Return the media content type from the linked source, if any."""
+        return self._linked_attr(hass, "media_content_type")
+
+    def entity_picture(self, hass: object) -> str | None:
+        """Return the artwork URL from the linked source, if any."""
+        return self._linked_attr(hass, "entity_picture")
