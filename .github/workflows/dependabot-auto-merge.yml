@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   automerge:
-    if: github.actor == 'dependabot[bot]'
+    # Run when the PR is from Dependabot (not just when Dependabot triggers the event).
+    # This allows the job to run on reopen/synchronize triggered by humans.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Fetch Dependabot metadata
