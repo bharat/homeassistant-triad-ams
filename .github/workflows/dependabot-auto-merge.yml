@@ -24,7 +24,7 @@ jobs:
           echo "${{ toJSON(steps.meta) }}"
 
       - name: Enable auto-merge for GitHub Actions updates
-        if: steps.meta.outputs.package-ecosystem == 'github-actions'
+        if: steps.meta.outputs.package-ecosystem == 'github_actions'
         run: |
           gh pr merge --auto --squash "$PR_URL"
         env:
