@@ -179,7 +179,6 @@ class TriadAmsOutput:
         """Refresh the state from the device (on demand only)."""
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
-            self._muted = await self.coordinator.get_output_mute(self.number)
             assigned_input = await self.coordinator.get_output_source(self.number)
 
             _LOGGER.debug(
