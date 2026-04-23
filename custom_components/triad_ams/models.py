@@ -178,6 +178,10 @@ class TriadAmsOutput:
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
         try:
+            # Mute is intentionally not polled here: on some AMS firmware the device
+            # returns an empty response to the mute query, which raises OSError and
+            # both aborts the source refresh and forces a coordinator reconnect.
+            # Mute state is tracked optimistically via set_muted().
             self._volume = await self.coordinator.get_output_volume(self.number)
             assigned_input = await self.coordinator.get_output_source(self.number)
 

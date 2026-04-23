@@ -273,17 +273,16 @@ class TestTriadAmsOutputRefresh:
     async def test_refresh(
         self, output: TriadAmsOutput, mock_coordinator: MagicMock
     ) -> None:
-        """Test refreshing state."""
+        """Test refreshing state updates volume and source but not mute."""
         mock_coordinator.get_output_volume.return_value = 0.6
-        mock_coordinator.get_output_mute.return_value = True
         mock_coordinator.get_output_source.return_value = 2
 
         await output.refresh()
 
         assert output.volume == 0.6
-        assert output.muted is True
         assert output.source == 2
         assert output.is_on is True
+        mock_coordinator.get_output_mute.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_with_audio_off(
