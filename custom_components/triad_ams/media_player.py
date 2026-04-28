@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from homeassistant.util import dt as dt_util
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -20,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -438,7 +438,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     def media_album_name(self) -> str | None:
         """Return the media album from the linked source, if any."""
         return self._linked_attr("media_album_name")
-    
+
     @property
     def media_position(self) -> float | None:
         """Return the current playback position from the linked source, if any."""
@@ -499,7 +499,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> str:
-        """Return the state: UNAVAILABLE, OFF, or ON/PLAYING/PAUSED mirrored from source."""
+        """Return UNAVAILABLE, OFF, or ON/PLAYING/PAUSED mirrored from source."""
         if not self.available:
             # Return None for unavailable state (Home Assistant convention)
             return None
