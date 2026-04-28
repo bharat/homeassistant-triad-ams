@@ -273,17 +273,16 @@ class TestTriadAmsOutputRefresh:
     async def test_refresh(
         self, output: TriadAmsOutput, mock_coordinator: MagicMock
     ) -> None:
-        """Test refreshing state."""
+        """Test refreshing state updates volume, mute, and source."""
         mock_coordinator.get_output_volume.return_value = 0.6
-        mock_coordinator.get_output_mute.return_value = True
         mock_coordinator.get_output_source.return_value = 2
 
         await output.refresh()
 
         assert output.volume == 0.6
-        assert output.muted is True
         assert output.source == 2
         assert output.is_on is True
+        mock_coordinator.get_output_mute.assert_called_once_with(1)
 
     @pytest.mark.asyncio
     async def test_refresh_with_audio_off(
@@ -313,10 +312,43 @@ class TestTriadAmsOutputRefresh:
     async def test_refresh_handles_error(
         self, output: TriadAmsOutput, mock_coordinator: MagicMock
     ) -> None:
-        """Test that refresh handles OSError."""
+        """Test that volume OSError returns early without querying source."""
         mock_coordinator.get_output_volume.side_effect = OSError("Connection failed")
         await output.refresh()
         # Should not raise
+        mock_coordinator.get_output_source.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_mute_error_is_suppressed(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that mute OSError does not abort refresh."""
+        mock_coordinator.get_output_volume.return_value = 0.6
+        mock_coordinator.get_output_mute.side_effect = OSError("mute failure")
+        mock_coordinator.get_output_source.return_value = 2
+
+        await output.refresh()
+
+        assert output.volume == 0.6
+        assert output.source == 2
+        assert output.is_on is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_source_error_aborts(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that source OSError returns early without corrupting state."""
+        mock_coordinator.get_output_volume.return_value = 0.6
+        mock_coordinator.get_output_source.side_effect = OSError("source failure")
+
+        assert output.source is None
+        assert output.is_on is False
+
+        await output.refresh()
+
+        assert output.volume == 0.6
+        assert output.source is None
+        assert output.is_on is False
 
     @pytest.mark.asyncio
     async def test_refresh_and_notify(

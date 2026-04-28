@@ -179,27 +179,40 @@ class TriadAmsOutput:
         """Refresh the state from the device (on demand only)."""
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
-            self._muted = await self.coordinator.get_output_mute(self.number)
-            assigned_input = await self.coordinator.get_output_source(self.number)
-
-            _LOGGER.debug(
-                "Refreshed output %d: volume=%.3f muted=%s source=%s",
-                self.number,
-                self._volume,
-                self._muted,
-                assigned_input,
-            )
-            # assigned_input is 1-based; validate against input_count
-            if assigned_input is not None and 1 <= assigned_input <= self._input_count:
-                self._assigned_input = assigned_input
-                # Keep last-known assignment in sync when a valid route exists
-                self._last_assigned_input = assigned_input
-                self._ui_on = True
-            else:
-                self._assigned_input = None
-                self._ui_on = False
         except OSError:
-            _LOGGER.exception("Failed to refresh output %d", self.number)
+            _LOGGER.exception("Failed to refresh volume for output %d", self.number)
+            return
+
+        # Mute is best-effort: on some AMS firmware the device returns an
+        # empty response to the mute query. Suppressing OSError here avoids
+        # both aborting the rest of refresh() and triggering the coordinator
+        # reconnect path (since OSError propagating out of refresh would
+        # cascade into _run_worker's connection-reset behavior).
+        # Mute state is also tracked optimistically via set_muted().
+        with contextlib.suppress(OSError):
+            self._muted = await self.coordinator.get_output_mute(self.number)
+
+        try:
+            assigned_input = await self.coordinator.get_output_source(self.number)
+        except OSError:
+            _LOGGER.exception("Failed to refresh source for output %d", self.number)
+            return
+
+        _LOGGER.debug(
+            "Refreshed output %d: volume=%.3f muted=%s source=%s",
+            self.number,
+            self._volume,
+            self._muted,
+            assigned_input,
+        )
+        # assigned_input is 1-based; validate against input_count
+        if assigned_input is not None and 1 <= assigned_input <= self._input_count:
+            self._assigned_input = assigned_input
+            self._last_assigned_input = assigned_input
+            self._ui_on = True
+        else:
+            self._assigned_input = None
+            self._ui_on = False
 
     async def refresh_and_notify(self) -> None:
         """Refresh state and notify listeners."""
