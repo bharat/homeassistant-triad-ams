@@ -8,6 +8,7 @@ from .const import VOLUME_STEPS
 from .coordinator import TriadCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+_POST_COMMAND_REFRESH_COOLDOWN_S = 3.0
 
 
 class TriadAmsOutput:
@@ -184,13 +185,14 @@ class TriadAmsOutput:
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
+        elapsed = time.monotonic() - self._last_command_time
+        if elapsed < _POST_COMMAND_REFRESH_COOLDOWN_S:
+            _LOGGER.debug(
+                "Output %d: command sent recently, skipping refresh",
+                self.number,
+            )
+            return
         try:
-            if time.monotonic() - self._last_command_time < 3.0:
-                _LOGGER.debug(
-                    "Output %d: command sent recently, skipping refresh",
-                    self.number,
-                )
-                return
             self._volume = await self.coordinator.get_output_volume(self.number)
         except OSError:
             _LOGGER.exception("Failed to refresh volume for output %d", self.number)
