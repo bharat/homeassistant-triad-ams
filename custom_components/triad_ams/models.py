@@ -180,9 +180,7 @@ class TriadAmsOutput:
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
         except OSError:
-            _LOGGER.exception(
-                "Failed to refresh volume for output %d", self.number
-            )
+            _LOGGER.exception("Failed to refresh volume for output %d", self.number)
             return
 
         # Mute is best-effort: on some AMS firmware the device returns an
@@ -195,13 +193,9 @@ class TriadAmsOutput:
             self._muted = await self.coordinator.get_output_mute(self.number)
 
         try:
-            assigned_input = await self.coordinator.get_output_source(
-                self.number
-            )
+            assigned_input = await self.coordinator.get_output_source(self.number)
         except OSError:
-            _LOGGER.exception(
-                "Failed to refresh source for output %d", self.number
-            )
+            _LOGGER.exception("Failed to refresh source for output %d", self.number)
             return
 
         _LOGGER.debug(
