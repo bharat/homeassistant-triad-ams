@@ -2,11 +2,13 @@
 
 import contextlib
 import logging
+import time
 
 from .const import VOLUME_STEPS
 from .coordinator import TriadCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+_POST_COMMAND_REFRESH_COOLDOWN_S = 3.0
 
 
 class TriadAmsOutput:
@@ -38,6 +40,7 @@ class TriadAmsOutput:
         self._outputs = outputs
         # Lightweight listener callbacks invoked after refreshes
         self._listeners: list[callable] = []
+        self._last_command_time: float = 0.0
 
     # ---- Listener management for state updates ----
     def add_listener(self, cb: callable) -> callable:
@@ -97,6 +100,7 @@ class TriadAmsOutput:
             self._last_assigned_input = input_id
             # Turning on (UI) implicitly when a source is routed
             self._ui_on = True
+            self._last_command_time = time.monotonic()
         except OSError:
             _LOGGER.exception("Failed to set source for output %d", self.number)
 
@@ -117,6 +121,7 @@ class TriadAmsOutput:
             quantized = steps / VOLUME_STEPS
             await self.coordinator.set_output_volume(self.number, quantized)
             self._volume = quantized
+            self._last_command_time = time.monotonic()
         except OSError:
             _LOGGER.exception("Failed to set volume for output %d", self.number)
 
@@ -130,6 +135,7 @@ class TriadAmsOutput:
         try:
             await self.coordinator.set_output_mute(self.number, mute=muted)
             self._muted = muted
+            self._last_command_time = time.monotonic()
         except OSError:
             _LOGGER.exception("Failed to set mute for output %d", self.number)
 
@@ -161,6 +167,7 @@ class TriadAmsOutput:
             await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
+            self._last_command_time = time.monotonic()
         except OSError:
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
@@ -174,9 +181,17 @@ class TriadAmsOutput:
             await self.set_source(self._last_assigned_input)
         else:
             self._ui_on = True
+            self._last_command_time = time.monotonic()
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
+        elapsed = time.monotonic() - self._last_command_time
+        if elapsed < _POST_COMMAND_REFRESH_COOLDOWN_S:
+            _LOGGER.debug(
+                "Output %d: command sent recently, skipping refresh",
+                self.number,
+            )
+            return
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
         except OSError:
