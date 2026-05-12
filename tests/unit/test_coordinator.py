@@ -52,22 +52,28 @@ class TestTriadCoordinatorLifecycle:
     async def test_start(self, coordinator: TriadCoordinator) -> None:
         """Test starting coordinator."""
         await coordinator.start()
-        assert coordinator._worker is not None
-        assert coordinator._poll_task is not None
-        assert not coordinator._worker.done()
-        assert not coordinator._poll_task.done()
+        try:
+            assert coordinator._worker is not None
+            assert coordinator._poll_task is not None
+            assert not coordinator._worker.done()
+            assert not coordinator._poll_task.done()
+        finally:
+            await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_start_idempotent(self, coordinator: TriadCoordinator) -> None:
         """Test that start is idempotent."""
         await coordinator.start()
-        worker1 = coordinator._worker
-        poll1 = coordinator._poll_task
+        try:
+            worker1 = coordinator._worker
+            poll1 = coordinator._poll_task
 
-        await coordinator.start()
-        # Should not create new tasks
-        assert coordinator._worker == worker1
-        assert coordinator._poll_task == poll1
+            await coordinator.start()
+            # Should not create new tasks
+            assert coordinator._worker == worker1
+            assert coordinator._poll_task == poll1
+        finally:
+            await coordinator.stop()
 
     @pytest.mark.asyncio
     async def test_stop(self, coordinator: TriadCoordinator) -> None:
