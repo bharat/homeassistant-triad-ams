@@ -6,6 +6,7 @@ import time
 
 from .const import VOLUME_STEPS
 from .coordinator import TriadCoordinator
+from .exceptions import TransientDeviceError
 
 _LOGGER = logging.getLogger(__name__)
 _POST_COMMAND_REFRESH_COOLDOWN_S = 3.0
@@ -101,7 +102,7 @@ class TriadAmsOutput:
             # Turning on (UI) implicitly when a source is routed
             self._ui_on = True
             self._last_command_time = time.monotonic()
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set source for output %d", self.number)
 
     @property
@@ -122,7 +123,7 @@ class TriadAmsOutput:
             await self.coordinator.set_output_volume(self.number, quantized)
             self._volume = quantized
             self._last_command_time = time.monotonic()
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set volume for output %d", self.number)
 
     @property
@@ -136,21 +137,21 @@ class TriadAmsOutput:
             await self.coordinator.set_output_mute(self.number, mute=muted)
             self._muted = muted
             self._last_command_time = time.monotonic()
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set mute for output %d", self.number)
 
     async def volume_up_step(self, *, large: bool = False) -> None:
         """Step the volume up (optionally large step)."""
         try:
             await self.coordinator.volume_step_up(self.number, large=large)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume up for output %d", self.number)
 
     async def volume_down_step(self, *, large: bool = False) -> None:
         """Step the volume down (optionally large step)."""
         try:
             await self.coordinator.volume_step_down(self.number, large=large)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume down for output %d", self.number)
 
     @property
@@ -168,7 +169,7 @@ class TriadAmsOutput:
             self._assigned_input = None
             self._ui_on = False
             self._last_command_time = time.monotonic()
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
@@ -194,7 +195,7 @@ class TriadAmsOutput:
             return
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to refresh volume for output %d", self.number)
             return
 
@@ -204,12 +205,12 @@ class TriadAmsOutput:
         # reconnect path (since OSError propagating out of refresh would
         # cascade into _run_worker's connection-reset behavior).
         # Mute state is also tracked optimistically via set_muted().
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(OSError, TransientDeviceError):
             self._muted = await self.coordinator.get_output_mute(self.number)
 
         try:
             assigned_input = await self.coordinator.get_output_source(self.number)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to refresh source for output %d", self.number)
             return
 

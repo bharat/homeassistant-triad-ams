@@ -20,6 +20,7 @@ from .const import (
     POST_CONNECT_DELAY,
     VOLUME_STEPS,
 )
+from .exceptions import TransientDeviceError
 from .volume_lut import step_for_db
 
 _LOGGER = logging.getLogger(__name__)
@@ -156,19 +157,19 @@ class TriadConnection:
         self, text: str, _expect: str | None, command: bytes
     ) -> None:
         """Validate response text against expected pattern."""
-        # Detect device-side command error or protocol desync (nulls)
+        # Detect device-side command error or protocol desync (nulls).
+        # The matrix firmware intermittently returns empty responses on
+        # otherwise-healthy TCP connections (most often for `get_output_mute`,
+        # also seen on volume / source queries). Treat these as transient
+        # *application-layer* failures — propagate to the caller without
+        # tearing down the socket. See issue #102.
         if text == "" or re.search(r"^command\s+error$", text, re.IGNORECASE):
-            _LOGGER.warning(
-                "Device returned error/empty response for command: %s; "
-                "resetting connection",
+            _LOGGER.debug(
+                "Device returned error/empty response for command: %s",
                 command.hex(),
             )
-            # Proactively drop the connection without blocking
-            self._log_protocol("_send_command(): before close_nowait() on error")
-            self.close_nowait()
-            self._log_protocol("_send_command(): after close_nowait() on error")
             msg = "Triad command error or empty response"
-            raise OSError(msg)
+            raise TransientDeviceError(msg)
 
     async def _send_command(self, command: bytes, *, expect: str | None = None) -> str:
         """

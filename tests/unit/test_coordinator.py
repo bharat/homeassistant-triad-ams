@@ -11,6 +11,7 @@ from custom_components.triad_ams.coordinator import (
     TriadCoordinatorConfig,
     _Command,
 )
+from custom_components.triad_ams.exceptions import TransientDeviceError
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
 
@@ -312,6 +313,40 @@ class TestTriadCoordinatorErrorHandling:
 
         with pytest.raises(TimeoutError):
             await coordinator.get_output_volume(1)
+
+        await coordinator.stop()
+
+    @pytest.mark.asyncio
+    async def test_transient_device_error_propagates_without_reconnect(
+        self, coordinator: TriadCoordinator, mock_connection: MagicMock
+    ) -> None:
+        """
+        TransientDeviceError must propagate but NOT touch the connection.
+
+        Issue #102: an empty/malformed application-layer response on a
+        healthy TCP socket should reach the caller without `_run_worker`
+        calling `close_nowait` or flipping `_available` to False.
+        """
+        mock_connection.get_output_volume.side_effect = TransientDeviceError(
+            "Triad command error or empty response"
+        )
+        mock_connection.close_nowait = MagicMock()
+        await coordinator.start()
+
+        listener = MagicMock()
+        coordinator.add_availability_listener(listener)
+
+        with pytest.raises(
+            TransientDeviceError, match="Triad command error or empty response"
+        ):
+            await coordinator.get_output_volume(1)
+
+        # Critical assertions for the issue #102 fix:
+        # 1. Socket NOT torn down.
+        mock_connection.close_nowait.assert_not_called()
+        # 2. Availability NOT flipped (no listener notification).
+        listener.assert_not_called()
+        assert coordinator.is_available is True
 
         await coordinator.stop()
 
