@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 from .connection import TriadConnection
 from .const import CONNECTION_TIMEOUT, NETWORK_EXCEPTIONS, SHUTDOWN_TIMEOUT
+from .exceptions import TransientDeviceError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,7 +212,7 @@ class TriadCoordinator:
             _LOGGER.info("Triad AMS device available")
             self._notify_availability_listeners(is_available=True)
 
-    async def _run_worker(self) -> None:
+    async def _run_worker(self) -> None:  # noqa: PLR0912
         """Worker: dequeue, pace, ensure connection, execute, propagate result/error."""
         while True:
             cmd = await self._queue.get()
@@ -233,6 +234,17 @@ class TriadCoordinator:
                 if not cmd.future.done():
                     cmd.future.cancel()
                 raise
+            except TransientDeviceError as exc:
+                # Application-layer device shrug (empty / malformed response)
+                # on a healthy TCP socket. Do NOT drop the connection or flip
+                # availability — propagate to the caller so it can decide
+                # whether to retry, skip, or surface. See issue #102.
+                _LOGGER.debug(
+                    "Transient device error; propagating without reconnect: %s",
+                    exc,
+                )
+                if not cmd.future.done():
+                    cmd.future.set_exception(exc)
             except NETWORK_EXCEPTIONS as exc:
                 # Log, drop transport, attempt quick reconnect, and propagate error.
                 _LOGGER.warning(
