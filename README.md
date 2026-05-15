@@ -65,12 +65,11 @@ Notes
 - If you later change the active lists or links in Options, the integration reloads and updates entities automatically
 - The device model selected during initial setup determines the number of available inputs and outputs
 
-Limitations / Roadmap
----------------------
-- Only tested with and officially supports the Triad AMS 8x8 model
-- No automatic discovery (enter host/port manually)
-- No push updates from the device; state is refreshed on demand and during actions
-- Reconnect/backoff can be improved in future releases
+Limitations
+-----------
+- Only the Triad AMS 8x8 model has been confirmed with real hardware; the 16x16 and 24x24 are supported in code but untested.
+- No automatic discovery — enter host/port manually.
+- The device emits no state push; the integration reads state on demand and around actions.
 
 Troubleshooting
 ---------------
