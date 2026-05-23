@@ -23,3 +23,25 @@ set_protocol_debug:
       example: true
       selector:
         boolean:
+set_route:
+  name: "Set Route"
+  description: "Route a physical Triad AMS input to a physical Triad AMS output by index. Use input 0 to disconnect the output."
+  fields:
+    output:
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 24
+          step: 1
+          mode: box
+    input:
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 0
+          max: 24
+          step: 1
+          mode: box
