@@ -29,6 +29,9 @@ Features
   - Select device model (TS-AMS8, TS-AMS16, or TS-AMS24)
   - Choose which outputs and inputs are active
   - Optionally set a link for each input
+- Service-based routing
+  - `triad_ams.turn_on_with_source` for "route the input feeding entity X to zone Y" automations
+  - `triad_ams.set_route` for direct `(output, input)` routing without involving HA entities (use `input: 0` to disconnect)
 - Safe device handling
   - Serialized command writes
   - Trigger zone on when the first output is routed; off when the last output disconnects
@@ -65,6 +68,12 @@ Notes
 - If you later change the active lists or links in Options, the integration reloads and updates entities automatically
 - The device model selected during initial setup determines the number of available inputs and outputs
 
+Services
+--------
+- `triad_ams.turn_on_with_source` — entity service on a Triad AMS `media_player`. Takes an `input_entity_id` of another HA `media_player`; the integration looks up which Triad input is linked to that entity and routes it to the target zone. Best when both ends of the action are HA entities (the upstream source has a media_player and you want the zone to mirror it).
+- `triad_ams.set_route` — global service. Takes two integers, `output` (1..N) and `input` (0..M); routes the input to the output directly. Use `input: 0` to disconnect the output. Best for headless or calibration automations that think in terms of physical port numbers rather than HA entities. Raises if more than one Triad AMS config entry is configured (no implicit broadcast).
+- `triad_ams.set_protocol_debug` — toggles protocol-level logging across all configured entries. Field: `enabled: true|false`.
+
 Limitations
 -----------
 - Only the Triad AMS 8x8 model has been confirmed with real hardware; the 16x16 and 24x24 are supported in code but untested.
@@ -87,6 +96,8 @@ Troubleshooting
 Credits
 -------
 - Protocol reference and driver data: Tim Weiler — https://github.com/tim-weiler/triad-audio-matrix
+- The `set_route(output, input)` service shape was adopted from [Richt198/hass-control4-avm](https://github.com/Richt198/hass-control4-avm), a community Home Assistant integration for the Control4 AVM-16S1-B audio matrix. Thanks to Richt198 for the clean, orthogonal service surface.
+- [OtisPresley/control4-mediaplayer](https://github.com/OtisPresley/control4-mediaplayer) is a related community integration for the Control4 Matrix Amp. We track it for ideas worth borrowing as both projects evolve.
 - Integration author: @bharat (and contributors)
 
 License

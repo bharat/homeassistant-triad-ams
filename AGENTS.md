@@ -45,7 +45,7 @@ Quality scale: currently **Bronze** in `manifest.json`, but `custom_components/t
 │   ├── const.py                    # DOMAIN, timeouts, VOLUME_STEPS, NETWORK_EXCEPTIONS
 │   ├── diagnostics.py              # Diagnostics download (Gold quality rule)
 │   ├── repairs.py                  # Repair issue flows
-│   ├── services.yaml               # turn_on_with_source, set_protocol_debug
+│   ├── services.yaml               # turn_on_with_source, set_route, set_protocol_debug
 │   ├── strings.json / translations/en.json  # UI strings
 │   ├── icons.json                  # Icon translations
 │   ├── quality_scale.yaml          # Per-rule quality-scale status (Bronze→Platinum)
@@ -113,16 +113,23 @@ Dependabot is configured for `devcontainers`, `github-actions`, and `pip` on a d
 - **Coordinator is custom, not `DataUpdateCoordinator`.** `TriadCoordinator` (`coordinator.py`) is a single-queue, single-worker command pacer that owns the `TriadConnection`. All device I/O must go through it — do not call `TriadConnection` methods directly from entities.
 - **Config entry has migrations.** `__init__.async_migrate_entry` upgrades pre-`model` entries. The current `MINOR_VERSION` is `4`; bump `TARGET_MINOR_VERSION` and the matching constant in `config_flow.py` together when changing entry schema.
 - **`scripts/develop` boots HA against `./config/`.** That config has hardcoded Sonos IPs (`192.168.0.30..41`) and `homeassistant.components.sonos: error`. Edit your local copy as needed, but don't commit credentials/IPs that aren't already there.
-- **Two custom services** are registered in `__init__.py`: `triad_ams.turn_on_with_source` (entity service; takes another media_player as the source) and `triad_ams.set_protocol_debug` (global toggle for protocol-level logging). When changing service signatures, update both `services.yaml` and any translations.
+- **Three custom services** are registered in `__init__.py`: `triad_ams.turn_on_with_source` (entity service; takes another media_player as the source), `triad_ams.set_route` (global service; takes `output` and `input` integers, routes the input to the output, `input: 0` disconnects, raises if more than one config entry exists rather than broadcasting), and `triad_ams.set_protocol_debug` (global toggle for protocol-level logging). When changing service signatures, update `services.yaml`, the translation files (`strings.json` + `translations/en.json`), and the corresponding README section.
 - **Quality scale is tracked in `quality_scale.yaml`.** If you implement a `todo` rule, flip it to `done` in the same PR. If you regress a `done` rule, that's a release blocker.
 - **CalVer tags.** See the Releases section below — *not* SemVer. The `manifest.json` version is also CalVer and must match the tag.
 
 ## Existing docs
 
-- `README.md` — user install/config docs, what HACS renders
+- `README.md` — user install/config docs, what HACS renders. Includes a Services section that should stay in sync with `services.yaml`, and a Credits section that calls out external community integrations whose patterns this project borrows from.
 - `CONTRIBUTING.md` — short contributor guide (fork, branch, lint, PR)
 - `custom_components/triad_ams/RELEASE.md` — older maintainer release checklist; predates the auto-generated release workflow. The procedure in this file (the "Releases" section) is canonical for tag/title format; `RELEASE.md` retains useful HACS troubleshooting notes.
 - `custom_components/triad_ams/quality_scale.yaml` — authoritative status of HA quality-scale rules
+
+## External pattern references
+
+Two community HA-Control4 audio matrix integrations are tracked as inspiration sources, and credited in `README.md`. When adding a new service or entity shape, check whether either already solved it:
+
+- [Richt198/hass-control4-avm](https://github.com/Richt198/hass-control4-avm) — Control4 AVM-16S1-B. The `set_route` service shape came from here.
+- [OtisPresley/control4-mediaplayer](https://github.com/OtisPresley/control4-mediaplayer) — Control4 Matrix Amp. Useful prior art for adjacent service ideas (party mode, raw command, etc.).
 
 ## Releases
 
