@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import voluptuous as vol
 from homeassistant.components.media_player import DOMAIN as MEDIA_PLAYER_DOMAIN
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import service
 
@@ -24,8 +25,13 @@ PLATFORMS = ["media_player"]
 
 SERVICE_TURN_ON_WITH_SOURCE = "turn_on_with_source"
 SERVICE_SET_PROTOCOL_DEBUG = "set_protocol_debug"
+SERVICE_SET_ROUTE = "set_route"
 ATTR_INPUT_ENTITY_ID = "input_entity_id"
 ATTR_PROTOCOL_DEBUG_ENABLED = "enabled"
+ATTR_OUTPUT = "output"
+ATTR_INPUT = "input"
+# Largest input/output count across all supported models (TS-AMS24).
+ABSOLUTE_MAX_CHANNELS = 24
 # Target minor version for migration
 TARGET_MINOR_VERSION = 4
 
@@ -70,6 +76,61 @@ async def async_setup(_hass: HomeAssistant, _config: ConfigType) -> bool:
         schema=vol.Schema(
             {
                 vol.Required(ATTR_PROTOCOL_DEBUG_ENABLED): cv.boolean,
+            }
+        ),
+    )
+
+    async def _handle_set_route(call: service.ServiceCall) -> None:
+        output = int(call.data[ATTR_OUTPUT])
+        input_channel = int(call.data[ATTR_INPUT])
+        entries = _hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            msg = "No Triad AMS device is configured"
+            raise HomeAssistantError(msg)
+        if len(entries) > 1:
+            msg = (
+                "triad_ams.set_route requires exactly one configured Triad AMS "
+                "device; multiple are configured"
+            )
+            raise HomeAssistantError(msg)
+        entry = entries[0]
+        output_count = int(entry.data.get("output_count", 0))
+        input_count = int(entry.data.get("input_count", 0))
+        if not 1 <= output <= output_count:
+            msg = (
+                f"output {output} is out of range for this device "
+                f"(valid range is 1..{output_count})"
+            )
+            raise HomeAssistantError(msg)
+        if not 0 <= input_channel <= input_count:
+            msg = (
+                f"input {input_channel} is out of range for this device "
+                f"(valid range is 0..{input_count}; 0 disconnects the output)"
+            )
+            raise HomeAssistantError(msg)
+        coordinator = getattr(entry, "runtime_data", None)
+        if not isinstance(coordinator, TriadCoordinatorType):
+            msg = "Triad AMS coordinator is not ready"
+            raise HomeAssistantError(msg)
+        if input_channel == 0:
+            await coordinator.disconnect_output(output)
+        else:
+            await coordinator.set_output_to_input(output, input_channel)
+
+    _hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_ROUTE,
+        _handle_set_route,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_OUTPUT): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=1, max=ABSOLUTE_MAX_CHANNELS),
+                ),
+                vol.Required(ATTR_INPUT): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=0, max=ABSOLUTE_MAX_CHANNELS),
+                ),
             }
         ),
     )
