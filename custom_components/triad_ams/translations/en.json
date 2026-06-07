@@ -32,6 +32,20 @@
                 }
             }
         },
+        "set_route": {
+            "name": "Set Route",
+            "description": "Route a physical Triad AMS input to a physical Triad AMS output by index. Use input 0 to disconnect the output.",
+            "fields": {
+                "output": {
+                    "name": "Output",
+                    "description": "The output channel index (1-based)."
+                },
+                "input": {
+                    "name": "Input",
+                    "description": "The input channel index (1-based), or 0 to disconnect the output."
+                }
+            }
+        },
         "get_groupable_players": {
             "name": "Get Groupable Players",
             "description": "Get all speaker entities that can group with this input."

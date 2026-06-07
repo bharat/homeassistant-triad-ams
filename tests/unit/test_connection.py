@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from custom_components.triad_ams.connection import TriadConnection
+from custom_components.triad_ams.exceptions import TransientDeviceError
 from tests.conftest import create_async_mock_method
 
 
@@ -215,15 +216,28 @@ class TestTriadConnectionSendCommand:
         mock_stream_reader: MagicMock,
         mock_stream_writer: MagicMock,
     ) -> None:
-        """Test handling of error response."""
+        """
+        An "error" / empty payload raises TransientDeviceError, NOT OSError.
+
+        The connection MUST remain open (this is the issue #102 fix: empty
+        responses come from a healthy TCP socket, so the coordinator should
+        not tear down + reconnect on them).
+        """
         mock_stream_reader.readuntil = create_async_mock_method(
             return_value=b"command error\x00"
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
+        # Spy on close_nowait so we can assert it's NOT called on this path.
+        with patch.object(connection, "close_nowait") as close_spy:
+            with pytest.raises(TransientDeviceError, match="Triad command error"):
+                await connection._send_command(b"\xff\x55")
+            close_spy.assert_not_called()
 
-        with pytest.raises(OSError, match="Triad command error"):
-            await connection._send_command(b"\xff\x55")
+        # Sanity: TransientDeviceError is intentionally NOT an OSError, so
+        # callers that catch only OSError will let it propagate. That's the
+        # point — `_run_worker`'s NETWORK_EXCEPTIONS path must not swallow it.
+        assert not issubclass(TransientDeviceError, OSError)
 
     @pytest.mark.asyncio
     async def test_send_command_empty_response(
@@ -232,13 +246,15 @@ class TestTriadConnectionSendCommand:
         mock_stream_reader: MagicMock,
         mock_stream_writer: MagicMock,
     ) -> None:
-        """Test handling of empty response."""
+        """An empty payload also raises TransientDeviceError without closing."""
         mock_stream_reader.readuntil = create_async_mock_method(return_value=b"\x00")
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
 
-        with pytest.raises(OSError, match="Triad command error"):
-            await connection._send_command(b"\xff\x55")
+        with patch.object(connection, "close_nowait") as close_spy:
+            with pytest.raises(TransientDeviceError, match="Triad command error"):
+                await connection._send_command(b"\xff\x55")
+            close_spy.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_send_command_timeout(

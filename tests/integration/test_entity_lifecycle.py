@@ -75,7 +75,7 @@ class TestEntityLifecycle:
     async def test_output_refresh_updates_state(
         self, output_fixture: TriadAmsOutput
     ) -> None:
-        """Test that refresh updates output state from device."""
+        """Test that refresh updates volume, mute, and source from device."""
         output = output_fixture
 
         # Set state via commands
@@ -85,13 +85,12 @@ class TestEntityLifecycle:
 
         # Clear local state
         output._volume = None
-        output._muted = False
         output._assigned_input = None
+        output._last_command_time = 0.0  # bypass post-command cooldown
 
-        # Refresh should restore state
+        # Refresh should restore volume and source
         await output.refresh()
         assert abs(output.volume - 0.6) < 0.1
-        assert output.muted is True
         assert output.source == 2
 
     @pytest.mark.asyncio

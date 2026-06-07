@@ -49,6 +49,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -566,6 +567,7 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.VOLUME_STEP
         | MediaPlayerEntityFeature.SELECT_SOURCE
+        | MediaPlayerEntityFeature.SEEK
         | MediaPlayerEntityFeature.GROUPING
     )
     _attr_should_poll = False
@@ -736,6 +738,21 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         return self._linked_attr("media_album_name")
 
     @property
+    def media_position(self) -> float | None:
+        """Return the current playback position from the linked source, if any."""
+        return self._linked_attr("media_position")
+
+    @property
+    def media_position_updated_at(self) -> object | None:
+        """Return when media_position was last updated as a timezone-aware datetime."""
+        val = self._linked_attr("media_position_updated_at")
+        if val is None:
+            return None
+        if isinstance(val, str):
+            return dt_util.parse_datetime(val)
+        return val
+
+    @property
     def media_duration(self) -> int | None:
         """Return the media duration (seconds) from the linked source, if any."""
         return self._linked_attr("media_duration")
@@ -780,11 +797,20 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> str:
-        """Return the state of the entity (STATE_ON, STATE_OFF, or UNAVAILABLE)."""
+        """Return UNAVAILABLE, OFF, or ON/PLAYING/PAUSED mirrored from source."""
         if not self.available:
             # Return None for unavailable state (Home Assistant convention)
             return None
-        return MediaPlayerState.ON if self.is_on else MediaPlayerState.OFF
+        if not self.is_on:
+            return MediaPlayerState.OFF
+        if self._linked_entity_id and self.hass is not None:
+            linked_state = self.hass.states.get(self._linked_entity_id)
+            if linked_state is not None:
+                if linked_state.state == MediaPlayerState.PLAYING:
+                    return MediaPlayerState.PLAYING
+                if linked_state.state == MediaPlayerState.PAUSED:
+                    return MediaPlayerState.PAUSED
+        return MediaPlayerState.ON
 
     @property
     def source(self) -> str | None:
@@ -885,6 +911,23 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         await self.output.volume_down_step(large=False)
         await self.output.refresh()
         self.async_write_ha_state()
+
+    async def async_media_seek(self, position: float) -> None:
+        """Forward seek to the linked source entity."""
+        if not self._linked_entity_id or self.hass is None:
+            return
+        _LOGGER.debug(
+            "Forwarding seek on output %d to %s: position=%.2f",
+            self.output.number,
+            self._linked_entity_id,
+            position,
+        )
+        await self.hass.services.async_call(
+            "media_player",
+            "media_seek",
+            {"entity_id": self._linked_entity_id, "seek_position": position},
+            blocking=False,
+        )
 
     async def async_turn_off(self) -> None:
         """Turn off the output (disconnect from any input)."""

@@ -2,11 +2,14 @@
 
 import contextlib
 import logging
+import time
 
 from .const import VOLUME_STEPS
 from .coordinator import TriadCoordinator
+from .exceptions import TransientDeviceError
 
 _LOGGER = logging.getLogger(__name__)
+_POST_COMMAND_REFRESH_COOLDOWN_S = 3.0
 
 
 class TriadAmsOutput:
@@ -38,6 +41,7 @@ class TriadAmsOutput:
         self._outputs = outputs
         # Lightweight listener callbacks invoked after refreshes
         self._listeners: list[callable] = []
+        self._last_command_time: float = 0.0
 
     # ---- Listener management for state updates ----
     def add_listener(self, cb: callable) -> callable:
@@ -97,7 +101,8 @@ class TriadAmsOutput:
             self._last_assigned_input = input_id
             # Turning on (UI) implicitly when a source is routed
             self._ui_on = True
-        except OSError:
+            self._last_command_time = time.monotonic()
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set source for output %d", self.number)
 
     @property
@@ -117,7 +122,8 @@ class TriadAmsOutput:
             quantized = steps / VOLUME_STEPS
             await self.coordinator.set_output_volume(self.number, quantized)
             self._volume = quantized
-        except OSError:
+            self._last_command_time = time.monotonic()
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set volume for output %d", self.number)
 
     @property
@@ -130,21 +136,22 @@ class TriadAmsOutput:
         try:
             await self.coordinator.set_output_mute(self.number, mute=muted)
             self._muted = muted
-        except OSError:
+            self._last_command_time = time.monotonic()
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to set mute for output %d", self.number)
 
     async def volume_up_step(self, *, large: bool = False) -> None:
         """Step the volume up (optionally large step)."""
         try:
             await self.coordinator.volume_step_up(self.number, large=large)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume up for output %d", self.number)
 
     async def volume_down_step(self, *, large: bool = False) -> None:
         """Step the volume down (optionally large step)."""
         try:
             await self.coordinator.volume_step_down(self.number, large=large)
-        except OSError:
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume down for output %d", self.number)
 
     @property
@@ -161,7 +168,8 @@ class TriadAmsOutput:
             await self.coordinator.disconnect_output(self.number)
             self._assigned_input = None
             self._ui_on = False
-        except OSError:
+            self._last_command_time = time.monotonic()
+        except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to turn off output %d", self.number)
 
     async def turn_on(self) -> None:
@@ -174,32 +182,53 @@ class TriadAmsOutput:
             await self.set_source(self._last_assigned_input)
         else:
             self._ui_on = True
+            self._last_command_time = time.monotonic()
 
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
+        elapsed = time.monotonic() - self._last_command_time
+        if elapsed < _POST_COMMAND_REFRESH_COOLDOWN_S:
+            _LOGGER.debug(
+                "Output %d: command sent recently, skipping refresh",
+                self.number,
+            )
+            return
         try:
             self._volume = await self.coordinator.get_output_volume(self.number)
-            self._muted = await self.coordinator.get_output_mute(self.number)
-            assigned_input = await self.coordinator.get_output_source(self.number)
+        except (OSError, TransientDeviceError):
+            _LOGGER.exception("Failed to refresh volume for output %d", self.number)
+            return
 
-            _LOGGER.debug(
-                "Refreshed output %d: volume=%.3f muted=%s source=%s",
-                self.number,
-                self._volume,
-                self._muted,
-                assigned_input,
-            )
-            # assigned_input is 1-based; validate against input_count
-            if assigned_input is not None and 1 <= assigned_input <= self._input_count:
-                self._assigned_input = assigned_input
-                # Keep last-known assignment in sync when a valid route exists
-                self._last_assigned_input = assigned_input
-                self._ui_on = True
-            else:
-                self._assigned_input = None
-                self._ui_on = False
-        except OSError:
-            _LOGGER.exception("Failed to refresh output %d", self.number)
+        # Mute is best-effort: on some AMS firmware the device returns an
+        # empty response to the mute query. Suppressing OSError here avoids
+        # both aborting the rest of refresh() and triggering the coordinator
+        # reconnect path (since OSError propagating out of refresh would
+        # cascade into _run_worker's connection-reset behavior).
+        # Mute state is also tracked optimistically via set_muted().
+        with contextlib.suppress(OSError, TransientDeviceError):
+            self._muted = await self.coordinator.get_output_mute(self.number)
+
+        try:
+            assigned_input = await self.coordinator.get_output_source(self.number)
+        except (OSError, TransientDeviceError):
+            _LOGGER.exception("Failed to refresh source for output %d", self.number)
+            return
+
+        _LOGGER.debug(
+            "Refreshed output %d: volume=%.3f muted=%s source=%s",
+            self.number,
+            self._volume,
+            self._muted,
+            assigned_input,
+        )
+        # assigned_input is 1-based; validate against input_count
+        if assigned_input is not None and 1 <= assigned_input <= self._input_count:
+            self._assigned_input = assigned_input
+            self._last_assigned_input = assigned_input
+            self._ui_on = True
+        else:
+            self._assigned_input = None
+            self._ui_on = False
 
     async def refresh_and_notify(self) -> None:
         """Refresh state and notify listeners."""
