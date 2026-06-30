@@ -274,7 +274,7 @@ class TriadConnection:
             db = float(m.group(1))
             step = step_for_db(db)
             return step / VOLUME_STEPS
-        _LOGGER.error("Could not parse output volume from response: %s", resp)
+        _LOGGER.warning("Could not parse output volume from response: %s", resp)
         return 0.0
 
     async def set_output_mute(self, output_channel: int, *, mute: bool) -> None:
@@ -416,7 +416,7 @@ class TriadConnection:
         m = re.search(r"input (\d+)", resp)
         if m:
             return int(m.group(1))
-        _LOGGER.error("Could not parse output source from response: %s", resp)
+        _LOGGER.warning("Could not parse output source from response: %s", resp)
         return None
 
     async def set_trigger_zone(self, zone: int = 1, *, on: bool) -> None:
