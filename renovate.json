@@ -44,6 +44,12 @@
     },
     {
       "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": false,
+      "description": "Renovate cannot compute a reliable release age for digest bumps of tag-tracked actions: it keyed aging off the old tag and auto-merged digests pointing at releases only hours old (action-gh-release v3.0.2, setup-node v6.5.0). Digest PRs stay open for a manual merge once the underlying release is 14 days old. Tag updates are unaffected; the home-assistant/actions rule below still applies last."
+    },
+    {
+      "matchManagers": ["github-actions"],
       "matchPackageNames": ["home-assistant/actions"],
       "minimumReleaseAge": "7 days",
       "automerge": true,
