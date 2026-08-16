@@ -179,7 +179,7 @@ def create_async_mock_method(
 _original_showwarning = warnings.showwarning
 
 
-def _warn_unawaited_coroutine(  # noqa: PLR0913
+def _warn_unawaited_coroutine(  # noqa: PLR0913, PLR0917
     message: str,
     category: type[Warning],
     filename: str,
