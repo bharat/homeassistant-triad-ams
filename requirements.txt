@@ -1,6 +1,6 @@
 colorlog==6.12.0
 homeassistant==2026.5.1
-home-assistant-frontend==20260729.4
+home-assistant-frontend==20260729.5
 pip>=26.1.1
 pre_commit==4.6.1
 pycares==5.0.1
