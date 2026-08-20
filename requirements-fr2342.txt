@@ -1,0 +1,22 @@
+# This is the requirements file for the feature/get-groupable-players-2342 branch
+# It is used to install the dependencies for the feature/get-groupable-players-2342 branch
+# We can delete this file after the feature/get-groupable-players-2342 branch is merged into main
+#
+# I'm running in a devcontainer so I do this:
+#   $ sudo mkdir /workspaces/homeassistant-core
+#   $ sudo chown $USER:$USER /workspaces/homeassistant-core
+#   $ git clone --depth 1 --branch feature/get-groupable-players-2342 \
+#     https://github.com/dan-s-github/homeassistant-core.git /workspaces/homeassistant-core
+
+colorlog==6.10.1
+homeassistant @ file:///workspaces/homeassistant-core
+home-assistant-frontend==20251001.4
+litellm>=1.80.16
+pip>=21.3.1
+pre_commit==4.5.1
+pycares>=5.0.0,<6
+pytest>=7.4.0
+pytest-asyncio==1.2.0
+pytest-cov==7.0.0
+pytest-timeout>=2.1.0
+ruff==0.14.11
