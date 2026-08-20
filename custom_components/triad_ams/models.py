@@ -30,6 +30,9 @@ class TriadAmsOutput:
         self.input_names = input_names or {
             i + 1: f"Input {i + 1}" for i in range(self._input_count)
         }
+        # Maximum volume cap (0..1); 1.0 means uncapped. Set from options by
+        # the media_player platform after construction.
+        self.max_volume: float = 1.0
         self._volume: float | None = None
         self._muted: bool = False
         self._assigned_input: int | None = None  # None = no routed source
@@ -112,6 +115,11 @@ class TriadAmsOutput:
 
     async def set_volume(self, value: float) -> None:
         """Set the output volume on the device and update cache."""
+        # Clamp to the configured max-volume cap. The cap only limits what
+        # WE send to the device; if the volume is raised above the cap
+        # externally (e.g. from a keypad), refresh() reports the actual
+        # value truthfully rather than fighting it.
+        value = min(float(value), self.max_volume)
         try:
             # round() returns float; cast to int to meet device step type
             steps = round(float(value) * VOLUME_STEPS)
@@ -141,11 +149,39 @@ class TriadAmsOutput:
             _LOGGER.exception("Failed to set mute for output %d", self.number)
 
     async def volume_up_step(self, *, large: bool = False) -> None:
-        """Step the volume up (optionally large step)."""
+        """Step the volume up (optionally large step), respecting max_volume."""
+        cap = self.max_volume
+        if cap < 1.0 and self._volume is None:
+            # Cache is cold; read the current volume so the cap check below
+            # can't be bypassed by stepping blind.
+            with contextlib.suppress(OSError, TransientDeviceError):
+                self._volume = await self.coordinator.get_output_volume(self.number)
+        if cap < 1.0 and self._volume is not None and self._volume >= cap:
+            # At the cap, or above it via an external control (keypad). We
+            # never push the device louder, but we also do not pull an
+            # externally raised volume back down: the cap limits only what
+            # we send, and reported state stays truthful.
+            return
         try:
             await self.coordinator.volume_step_up(self.number, large=large)
         except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume up for output %d", self.number)
+            return
+        # A small step moves one device unit on the same 1/VOLUME_STEPS grid
+        # the cap is quantized to, so it cannot overshoot from below the cap.
+        # A large step can, so read back where it landed and clamp if needed.
+        if cap < 1.0 and large:
+            try:
+                new_volume = await self.coordinator.get_output_volume(self.number)
+            except (OSError, TransientDeviceError):
+                _LOGGER.debug(
+                    "Could not read back volume after large step for output %d",
+                    self.number,
+                )
+                return
+            self._volume = new_volume
+            if new_volume > cap:
+                await self.set_volume(cap)
 
     async def volume_down_step(self, *, large: bool = False) -> None:
         """Step the volume down (optionally large step)."""
@@ -194,6 +230,9 @@ class TriadAmsOutput:
             )
             return
         try:
+            # Deliberately not clamped to max_volume: if the volume was
+            # raised externally (e.g. keypad) we report the true device
+            # state; the cap only applies to volume commands we originate.
             self._volume = await self.coordinator.get_output_volume(self.number)
         except TransientDeviceError:
             _LOGGER.debug(

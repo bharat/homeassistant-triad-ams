@@ -20,6 +20,9 @@ from homeassistant.helpers.selector import selector
 
 from .const import DOMAIN
 
+# Maximum volume is edited as a percentage; 100% means uncapped.
+MAX_VOLUME_PERCENT = 100
+
 
 class TriadAmsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a simple config flow for Triad AMS."""
@@ -193,11 +196,17 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                 for i in range(1, input_count + 1)
                 if user_input.get(f"link_input_{i}")
             }
+            output_max_volumes: dict[str, float] = {}
+            for i in range(1, output_count + 1):
+                pct = user_input.get(f"max_volume_output_{i}")
+                if pct is not None and float(pct) < MAX_VOLUME_PERCENT:
+                    output_max_volumes[str(i)] = float(pct) / MAX_VOLUME_PERCENT
             return self.async_create_entry(
                 data={
                     "active_inputs": active_inputs,
                     "active_outputs": active_outputs,
                     "input_links": input_links,
+                    "output_max_volumes": output_max_volumes,
                 }
             )
 
@@ -211,9 +220,27 @@ class TriadAmsOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         # Determine counts from stored model
         input_count = self.config_entry.data.get("input_count")
         output_count = self.config_entry.data.get("output_count")
-        # Outputs first
+        output_max_volumes = current.get("output_max_volumes", {})
+        # Outputs first, each with its optional maximum-volume cap
         for i in range(1, output_count + 1):
             schema[vol.Optional(f"output_{i}", default=i in active_outputs)] = bool
+            cap = float(output_max_volumes.get(str(i), 1.0))
+            schema[
+                vol.Optional(
+                    f"max_volume_output_{i}",
+                    default=round(cap * MAX_VOLUME_PERCENT),
+                )
+            ] = selector(
+                {
+                    "number": {
+                        "min": 1,
+                        "max": MAX_VOLUME_PERCENT,
+                        "step": 1,
+                        "unit_of_measurement": "%",
+                        "mode": "slider",
+                    }
+                }
+            )
         # Then inputs with inline link selectors
         for i in range(1, input_count + 1):
             schema[vol.Optional(f"input_{i}", default=i in active_inputs)] = bool

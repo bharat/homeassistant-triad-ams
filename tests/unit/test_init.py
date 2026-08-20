@@ -158,6 +158,79 @@ class TestAsyncSetupEntry:
             assert result is True
 
 
+class TestFirstLoadOptionsMigration:
+    """Test first-load default population of new optional option fields."""
+
+    @pytest.mark.asyncio
+    async def test_defaults_written_when_field_missing(
+        self, hass: MagicMock, config_entry: MagicMock
+    ) -> None:
+        """Test that a missing output_max_volumes field is populated on load."""
+        with (
+            patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class,
+            patch("custom_components.triad_ams.repairs.async_setup_entry"),
+        ):
+            mock_coord = MagicMock()
+            mock_coord.start = create_async_mock_method()
+            mock_coord_class.return_value = mock_coord
+
+            await async_setup_entry(hass, config_entry)
+
+        hass.config_entries.async_update_entry.assert_called_once()
+        args, kwargs = hass.config_entries.async_update_entry.call_args
+        assert args[0] is config_entry
+        assert kwargs["options"]["output_max_volumes"] == {}
+        # Existing options must be preserved
+        assert kwargs["options"]["active_inputs"] == [1, 2]
+        assert kwargs["options"]["active_outputs"] == [1]
+
+    @pytest.mark.asyncio
+    async def test_defaults_written_exactly_once_across_loads(
+        self, hass: MagicMock, config_entry: MagicMock
+    ) -> None:
+        """Test that the default write is idempotent on a second load."""
+
+        def _apply_update(entry: MagicMock, **kwargs: object) -> None:
+            if "options" in kwargs:
+                entry.options = kwargs["options"]
+
+        hass.config_entries.async_update_entry.side_effect = _apply_update
+
+        with (
+            patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class,
+            patch("custom_components.triad_ams.repairs.async_setup_entry"),
+        ):
+            mock_coord = MagicMock()
+            mock_coord.start = create_async_mock_method()
+            mock_coord_class.return_value = mock_coord
+
+            await async_setup_entry(hass, config_entry)
+            await async_setup_entry(hass, config_entry)
+
+        assert hass.config_entries.async_update_entry.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_write_when_field_present(
+        self, hass: MagicMock, config_entry: MagicMock
+    ) -> None:
+        """Test that entries that already have the field are left alone."""
+        config_entry.options = {
+            **config_entry.options,
+            "output_max_volumes": {"1": 0.5},
+        }
+        with (
+            patch("custom_components.triad_ams.TriadCoordinator") as mock_coord_class,
+            patch("custom_components.triad_ams.repairs.async_setup_entry"),
+        ):
+            mock_coord = MagicMock()
+            mock_coord.start = create_async_mock_method()
+            mock_coord_class.return_value = mock_coord
+
+            await async_setup_entry(hass, config_entry)
+
+        hass.config_entries.async_update_entry.assert_not_called()
+
+
 class TestAsyncUnloadEntry:
     """Test async_unload_entry function."""
 

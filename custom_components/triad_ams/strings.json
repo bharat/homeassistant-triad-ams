@@ -10,6 +10,14 @@
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Triad AMS options",
+        "description": "Choose active outputs and inputs, optional input links, and a per-output maximum volume. The maximum volume caps volume commands sent from Home Assistant (100% = no limit); volume changed from a keypad is still reported as-is."
+      }
+    }
+  },
   "exceptions": {
     "input_entity_not_linked": {
       "message": "Input entity {input_entity_id} is not linked in integration options"
