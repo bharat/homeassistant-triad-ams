@@ -220,6 +220,31 @@ class TriadAmsOutput:
             self._ui_on = True
             self._last_command_time = time.monotonic()
 
+    def restore_state(
+        self,
+        *,
+        volume: float | None,
+        muted: bool | None,
+        source: int | None,
+        is_on: bool,
+    ) -> None:
+        """
+        Seed cached state from Home Assistant's last saved state.
+
+        This is display-only restoration after a restart: it only updates
+        the local caches and never sends anything to the device. The first
+        successful refresh() overwrites every value seeded here with device
+        truth unconditionally.
+        """
+        if volume is not None:
+            self._volume = min(max(volume, 0.0), 1.0)
+        if muted is not None:
+            self._muted = muted
+        if source is not None and 1 <= source <= self._input_count:
+            self._assigned_input = source if is_on else None
+            self._last_assigned_input = source
+        self._ui_on = is_on
+
     async def refresh(self) -> None:
         """Refresh the state from the device (on demand only)."""
         elapsed = time.monotonic() - self._last_command_time

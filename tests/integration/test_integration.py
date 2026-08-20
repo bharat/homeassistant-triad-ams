@@ -280,3 +280,44 @@ class TestTriadAmsIntegration:
                 await coordinator.disconnect()
         finally:
             await simulator.stop()
+
+
+@pytest.mark.integration
+class TestRestoredStateProvisional:
+    """Restored HA state is provisional; the device is the source of truth."""
+
+    @pytest.mark.asyncio
+    async def test_first_poll_overwrites_restored_snapshot(
+        self,
+        simulator_fixture: tuple[TriadAmsSimulator, str, int],
+        output_fixture: TriadAmsOutput,
+    ) -> None:
+        """Seed a conflicting restored snapshot; first poll restores device truth."""
+        simulator, _host, _port = simulator_fixture
+        output = output_fixture
+
+        # Device truth on the simulator
+        simulator._volumes[1] = 80
+        simulator._mutes[1] = True
+        simulator._sources[1] = 3
+        expected_volume = await output.coordinator.get_output_volume(1)
+
+        # Simulate RestoreEntity seeding a stale, conflicting snapshot
+        output.restore_state(volume=0.25, muted=False, source=2, is_on=True)
+        assert output.volume == 0.25
+        assert output.muted is False
+        assert output.source == 2
+        assert output.is_on is True
+
+        # Restoration is display-only: the device state must be untouched
+        assert simulator._volumes[1] == 80
+        assert simulator.get_mute(1) is True
+        assert simulator.get_source(1) == 3
+
+        await output.refresh()
+
+        # First poll wins unconditionally
+        assert output.volume == expected_volume
+        assert output.muted is True
+        assert output.source == 3
+        assert output.is_on is True

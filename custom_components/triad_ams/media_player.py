@@ -7,11 +7,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -19,6 +22,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
@@ -310,7 +314,7 @@ async def async_setup_entry(
     _remove_orphaned_devices(hass, entry)
 
 
-class TriadAmsMediaPlayer(MediaPlayerEntity):
+class TriadAmsMediaPlayer(MediaPlayerEntity, RestoreEntity):
     """Media player entity representing a Triad AMS output."""
 
     PARALLEL_UPDATES = 1  # Silver requirement: limit concurrent updates
@@ -564,8 +568,40 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         else:
             _LOGGER.error("Unknown source name: %s", source)
 
+    async def _async_restore_last_state(self) -> None:
+        """
+        Seed provisional Triad-native state from the last saved HA state.
+
+        Display-only: nothing is ever written to the device based on the
+        restored snapshot, and the first successful device poll overwrites
+        it with device truth unconditionally. Linked-source media metadata
+        (title/artist/artwork/position) is intentionally not restored; it
+        re-derives live from the linked entity.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return
+        attrs = last_state.attributes
+        volume = attrs.get(ATTR_MEDIA_VOLUME_LEVEL)
+        muted = attrs.get(ATTR_MEDIA_VOLUME_MUTED)
+        # input_channel is the Triad-native routed input from
+        # extra_state_attributes; restoring by number (not source name)
+        # survives linked entities being renamed or not yet loaded.
+        source = attrs.get("input_channel")
+        self.output.restore_state(
+            volume=volume if isinstance(volume, int | float) else None,
+            muted=muted if isinstance(muted, bool) else None,
+            source=source if isinstance(source, int) else None,
+            is_on=last_state.state != MediaPlayerState.OFF,
+        )
+
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: seed and write initial state."""
+        await super().async_added_to_hass()
+        # Only seed from the saved snapshot while device state is still
+        # unknown (volume is None until the first successful poll).
+        if self.output.volume is None:
+            await self._async_restore_last_state()
         self._update_link_subscription()
         # Subscribe to coordinator availability changes (Silver requirement)
         coordinator = self.output.coordinator
