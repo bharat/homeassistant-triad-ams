@@ -16,6 +16,9 @@ def mock_stream_reader() -> MagicMock:
     """Create a mock StreamReader."""
     reader = MagicMock()
     reader.readuntil = create_async_mock_method(return_value=b"Response\x00")
+    # Padding drain / stale-buffer flush find nothing buffered by default.
+    reader.readexactly = create_async_mock_method(side_effect=TimeoutError())
+    reader.read = create_async_mock_method(side_effect=TimeoutError())
     return reader
 
 
@@ -272,6 +275,171 @@ class TestTriadConnectionSendCommand:
 
         with pytest.raises(asyncio.TimeoutError):
             await connection._send_command(b"\xff\x55")
+
+
+class TestTriadConnectionPaddedFrames:
+    """
+    Test NUL-padding drain and stale-buffer flush (issue #164).
+
+    Some firmware pads every response to a fixed 150-byte frame with
+    trailing NULs; readuntil() only consumes the first NUL, so the read
+    path must drain the rest to avoid desyncing later exchanges.
+    """
+
+    @pytest.mark.asyncio
+    async def test_drain_discards_trailing_nul_padding(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """Trailing NUL padding after a frame is drained, not left buffered."""
+        padding = [b"\x00"] * 5
+
+        def readexactly_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if padding:
+                return padding.pop(0)
+            raise TimeoutError
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Volume : 0x32\x00"
+        )
+        mock_stream_reader.readexactly = create_async_mock_method(
+            side_effect=readexactly_side_effect
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        result = await connection._send_command(b"\xff\x55", expect=r"Volume")
+
+        assert "Volume" in result
+        # 5 padding bytes plus the final timed-out read
+        assert mock_stream_reader.readexactly.call_count == 6
+        assert connection._read_ahead == b""
+
+    @pytest.mark.asyncio
+    async def test_drain_preserves_first_non_nul_byte(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """A non-NUL byte ending the drain is kept for the next frame read."""
+        drain_bytes = [b"\x00", b"\x00", b"N"]
+
+        def readexactly_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if drain_bytes:
+                return drain_bytes.pop(0)
+            raise TimeoutError
+
+        frames = [b"Frame1\x00", b"ext\x00"]
+
+        def readuntil_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            return frames.pop(0)
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            side_effect=readuntil_side_effect
+        )
+        mock_stream_reader.readexactly = create_async_mock_method(
+            side_effect=readexactly_side_effect
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        first = await connection._read_response_bytes(mock_stream_reader)
+        assert first == b"Frame1\x00"
+        assert connection._read_ahead == b"N"
+
+        # The held byte is prepended to the next frame, so nothing is lost.
+        second = await connection._read_response_bytes(mock_stream_reader)
+        assert second == b"Next\x00"
+        assert connection._read_ahead == b""
+
+    @pytest.mark.asyncio
+    async def test_flush_discards_stale_bytes_before_send(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """Stale buffered bytes are flushed before a new command is written."""
+        stale_chunks = [b"\x00\x00\x00leftover"]
+
+        def read_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if stale_chunks:
+                return stale_chunks.pop(0)
+            raise TimeoutError
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Volume : 0x32\x00"
+        )
+        mock_stream_reader.read = create_async_mock_method(side_effect=read_side_effect)
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        result = await connection._send_command(b"\xff\x55", expect=r"Volume")
+
+        assert "Volume" in result
+        # One chunk of stale data plus the final timed-out read
+        assert mock_stream_reader.read.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_flush_discards_pending_read_ahead(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """A held read-ahead byte from a stale exchange is flushed pre-send."""
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Volume : 0x32\x00"
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+        connection._read_ahead = b"X"
+
+        result = await connection._send_command(b"\xff\x55", expect=r"Volume")
+
+        assert "Volume" in result
+        assert connection._read_ahead == b""
+
+    @pytest.mark.asyncio
+    async def test_audiosense_with_trailing_dollar_is_skipped(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """AudioSense events with a literal trailing "$" are skipped."""
+        responses = [
+            b"AudioSense:Input[3] : 0$\x00",
+            b"Output Volume : 0x32\x00",
+        ]
+
+        def readuntil_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            return responses.pop(0)
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            side_effect=readuntil_side_effect
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        result = await connection._send_command(b"\xff\x55", expect=r"Volume")
+
+        assert "Volume" in result
+        assert mock_stream_reader.readuntil.call_count == 2
+
+    def test_close_nowait_clears_read_ahead(
+        self, connection: TriadConnection, mock_stream_writer: MagicMock
+    ) -> None:
+        """close_nowait() must not leak a read-ahead byte across connections."""
+        connection._writer = mock_stream_writer
+        connection._read_ahead = b"X"
+
+        connection.close_nowait()
+
+        assert connection._read_ahead == b""
 
 
 class TestTriadConnectionVolume:

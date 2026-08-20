@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from asyncio import StreamReader, StreamWriter
 
 from .const import (
+    BUFFER_DRAIN_TIMEOUT,
     CONNECTION_TIMEOUT,
     DEVICE_COMMAND_DELAY,
     POST_CONNECT_DELAY,
@@ -37,6 +38,9 @@ class TriadConnection:
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
         self._protocol_debug = protocol_debug
+        # Single byte read past a frame boundary while draining NUL padding;
+        # prepended to the next frame read so no real data is lost.
+        self._read_ahead: bytes = b""
 
     def _log_protocol(self, msg: str, *args: object) -> None:
         """Emit protocol logs when enabled via options."""
@@ -70,6 +74,7 @@ class TriadConnection:
             self._log_protocol("connect(): already connected; skipping")
             return
         self._log_protocol("connect(): begin to %s:%s", self.host, self.port)
+        self._read_ahead = b""
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
         self._log_protocol("connect(): connected to %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
@@ -83,6 +88,7 @@ class TriadConnection:
             await self._writer.wait_closed()
             self._reader = None
             self._writer = None
+            self._read_ahead = b""
             self._log_protocol("disconnect(): closed connection")
 
     def close_nowait(self) -> None:
@@ -106,6 +112,7 @@ class TriadConnection:
                 self._writer.close()
         self._reader = None
         self._writer = None
+        self._read_ahead = b""
         self._log_protocol("close_nowait(): cleared reader/writer")
 
     async def _ensure_connection_for_send(self) -> None:
@@ -150,8 +157,68 @@ class TriadConnection:
         except OSError:
             # Re-raise OSError as-is (might be from socket shutdown)
             raise
+        if self._read_ahead:
+            response = self._read_ahead + response
+            self._read_ahead = b""
         self._log_protocol("RX %s", self._summarize_bytes(response))
+        await self._drain_nul_padding(reader)
         return response
+
+    async def _drain_nul_padding(self, reader: "StreamReader") -> None:
+        """
+        Discard NUL padding that may trail a response frame.
+
+        Some firmware revisions pad every response to a fixed-length frame
+        (observed: 150 bytes) with trailing 0x00 bytes, while others terminate
+        with a single 0x00. readuntil() consumes only the first NUL, so the
+        padding would otherwise be read as the next command's response and
+        desync every subsequent exchange (issue #164). A non-NUL byte ends the
+        drain and is kept in ``_read_ahead`` for the next frame read, so no
+        real data can be lost.
+        """
+        drained = 0
+        while True:
+            try:
+                byte = await asyncio.wait_for(
+                    reader.readexactly(1), timeout=BUFFER_DRAIN_TIMEOUT
+                )
+            except (OSError, asyncio.IncompleteReadError):
+                # Timeout means no more buffered bytes; EOF/connection errors
+                # will surface on the next read.
+                break
+            if byte != b"\x00":
+                self._read_ahead = byte
+                break
+            drained += 1
+        if drained:
+            self._log_protocol("Drained %d trailing NUL padding byte(s)", drained)
+
+    async def _flush_stale_buffer(self, reader: "StreamReader") -> None:
+        """
+        Discard any stale bytes buffered from previous exchanges.
+
+        Belt-and-braces companion to _drain_nul_padding(): anything still
+        buffered right before a new command is written cannot belong to that
+        command's response, so it is logged and dropped.
+        """
+        stale = bytearray(self._read_ahead)
+        self._read_ahead = b""
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    reader.read(1024), timeout=BUFFER_DRAIN_TIMEOUT
+                )
+            except (OSError, asyncio.IncompleteReadError):
+                break
+            if not chunk:
+                # EOF; the next read will surface the closed connection.
+                break
+            stale += chunk
+        if stale:
+            self._log_protocol(
+                "Flushed stale buffered bytes before send: %s",
+                self._summarize_bytes(bytes(stale)),
+            )
 
     def _validate_response(
         self, text: str, _expect: str | None, command: bytes
@@ -185,6 +252,7 @@ class TriadConnection:
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
             reader = cast("asyncio.StreamReader", self._reader)
+            await self._flush_stale_buffer(reader)
             await self._write_command_bytes(writer, command)
             response = await self._read_response_bytes(reader)
             text = response.decode(errors="replace").strip("\x00").strip()
@@ -198,7 +266,8 @@ class TriadConnection:
                 and not re.search(expect, text, re.IGNORECASE)
             ):
                 if re.search(
-                    r"^AudioSense:Input\[\d+\]\s*:\s*(0|1)\s*$",
+                    # Some firmware appends a literal "$" to AudioSense events.
+                    r"^AudioSense:Input\[\d+\]\s*:\s*(0|1)\s*\$?\s*$",
                     text,
                     re.IGNORECASE,
                 ):

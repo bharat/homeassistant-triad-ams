@@ -11,6 +11,7 @@ CONNECTION_TIMEOUT = 5.0  # Timeout for connection operations (seconds)
 SHUTDOWN_TIMEOUT = 1.0  # Timeout for graceful shutdown of workers (seconds)
 DEVICE_COMMAND_DELAY = 0.1  # Delay between command send and response read (seconds)
 POST_CONNECT_DELAY = 0.2  # Delay after establishing connection (seconds)
+BUFFER_DRAIN_TIMEOUT = 0.05  # Max wait when draining padding/stale bytes (seconds)
 
 # Network-related exceptions that should trigger connection reset
 NETWORK_EXCEPTIONS: tuple[type[Exception], ...] = (
