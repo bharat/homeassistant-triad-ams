@@ -274,10 +274,14 @@ async def async_setup_entry(
         i: input_links_opt.get(str(i)) for i in active_inputs
     }
 
+    output_max_volumes: dict[str, float] = entry.options.get("output_max_volumes", {})
+
     outputs: list[TriadAmsOutput] = []
     for ch in sorted(active_outputs):
         name = f"Output {ch}"
-        outputs.append(TriadAmsOutput(ch, name, coordinator, outputs, input_names))
+        output = TriadAmsOutput(ch, name, coordinator, outputs, input_names)
+        output.max_volume = float(output_max_volumes.get(str(ch), 1.0))
+        outputs.append(output)
 
     # Ensure coordinator worker is running before any refresh enqueues commands
     try:
@@ -477,10 +481,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose Triad channel metadata for easier identification."""
-        return {
+        attrs: dict[str, Any] = {
             "output_channel": self.output.number,
             "input_channel": self.output.source,
         }
+        max_volume = getattr(self.output, "max_volume", 1.0)
+        if max_volume < 1.0:
+            attrs["max_volume"] = max_volume
+        return attrs
 
     # ---- Core media player properties and commands ----
     @property

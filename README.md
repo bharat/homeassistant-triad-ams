@@ -66,6 +66,7 @@ Notes
 -----
 - You can rename outputs (zones) and set areas from each entity’s settings page
 - If you later change the active lists or links in Options, the integration reloads and updates entities automatically
+- In Options, each output has an optional maximum volume (percentage, default 100% = no limit). It caps volume commands sent from Home Assistant; if the volume is raised above the cap from a keypad, the entity reports the actual volume and exposes the cap as a `max_volume` attribute
 - The device model selected during initial setup determines the number of available inputs and outputs
 
 Services

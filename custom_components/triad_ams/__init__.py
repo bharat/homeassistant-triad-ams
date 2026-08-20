@@ -171,6 +171,18 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Triad AMS from a config entry."""
+    # First-load migration (no entry version bump): populate newly added
+    # optional options with defaults so existing installs pick them up on
+    # the first load after upgrade. Runs before the update listener is
+    # registered, so writing the defaults cannot trigger a reload.
+    if "output_max_volumes" not in entry.options:
+        _LOGGER.info(
+            "Migrating config entry %s: saving default output max volumes",
+            entry.entry_id,
+        )
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "output_max_volumes": {}}
+        )
     # Get connection info from entry
     host = entry.data["host"]
     port = entry.data["port"]
