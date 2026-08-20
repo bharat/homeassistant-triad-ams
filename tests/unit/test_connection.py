@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from custom_components.triad_ams.connection import TriadConnection
+from custom_components.triad_ams.const import CLEAN_EXCHANGES_TO_SKIP_DRAIN
 from custom_components.triad_ams.exceptions import TransientDeviceError
 from tests.conftest import create_async_mock_method
 
@@ -440,6 +441,158 @@ class TestTriadConnectionPaddedFrames:
         connection.close_nowait()
 
         assert connection._read_ahead == b""
+
+
+class TestTriadConnectionAdaptiveDrain:
+    """
+    Test per-connection learning of response framing.
+
+    Single-NUL firmware should stop paying the timed drain/flush windows
+    after a few consecutive clean exchanges; padded firmware must keep the
+    full windows for the life of the connection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_clean_exchanges_learn_to_skip_timed_windows(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """After enough clean exchanges the drain and flush are skipped."""
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        for _ in range(CLEAN_EXCHANGES_TO_SKIP_DRAIN):
+            await connection._send_command(b"\xff\x55")
+
+        assert connection._skip_timed_windows() is True
+        drain_calls = mock_stream_reader.readexactly.call_count
+        flush_calls = mock_stream_reader.read.call_count
+        assert drain_calls == CLEAN_EXCHANGES_TO_SKIP_DRAIN
+        assert flush_calls == CLEAN_EXCHANGES_TO_SKIP_DRAIN
+
+        # Steady state: no timed reads at all on later commands.
+        await connection._send_command(b"\xff\x55")
+        await connection._send_command(b"\xff\x55")
+        assert mock_stream_reader.readexactly.call_count == drain_calls
+        assert mock_stream_reader.read.call_count == flush_calls
+
+    @pytest.mark.asyncio
+    async def test_connection_that_sees_padding_never_skips(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """Once padding is drained, the full windows stay for the connection."""
+        padding = [b"\x00"] * 3
+
+        def readexactly_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if padding:
+                return padding.pop(0)
+            raise TimeoutError
+
+        mock_stream_reader.readexactly = create_async_mock_method(
+            side_effect=readexactly_side_effect
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        # First exchange drains padding; every later one is clean.
+        for _ in range(CLEAN_EXCHANGES_TO_SKIP_DRAIN + 3):
+            await connection._send_command(b"\xff\x55")
+
+        assert connection._padding_seen is True
+        assert connection._skip_timed_windows() is False
+        # Drain ran on every exchange, including the last one.
+        assert mock_stream_reader.readexactly.call_count > (
+            CLEAN_EXCHANGES_TO_SKIP_DRAIN + 3
+        )
+
+    @pytest.mark.asyncio
+    async def test_stale_flush_pins_full_windows(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """Stale bytes found at flush time also disable skipping."""
+        stale_chunks = [b"\x00\x00leftover"]
+
+        def read_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if stale_chunks:
+                return stale_chunks.pop(0)
+            raise TimeoutError
+
+        mock_stream_reader.read = create_async_mock_method(side_effect=read_side_effect)
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+        connection._clean_exchanges = CLEAN_EXCHANGES_TO_SKIP_DRAIN - 1
+
+        await connection._send_command(b"\xff\x55")
+
+        assert connection._padding_seen is True
+        assert connection._skip_timed_windows() is False
+
+    @pytest.mark.asyncio
+    async def test_held_read_ahead_byte_resets_clean_count(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """A non-NUL byte found during the drain resets the clean counter."""
+        drain_bytes = [b"A"]
+
+        def readexactly_side_effect(*_args: Any, **_kwargs: Any) -> bytes:
+            if drain_bytes:
+                return drain_bytes.pop(0)
+            raise TimeoutError
+
+        mock_stream_reader.readexactly = create_async_mock_method(
+            side_effect=readexactly_side_effect
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+        connection._clean_exchanges = CLEAN_EXCHANGES_TO_SKIP_DRAIN - 1
+
+        await connection._read_response_bytes(mock_stream_reader)
+
+        assert connection._clean_exchanges == 0
+        assert connection._skip_timed_windows() is False
+
+    def test_close_nowait_resets_learned_state(
+        self, connection: TriadConnection, mock_stream_writer: MagicMock
+    ) -> None:
+        """close_nowait() must reset framing state for the next connection."""
+        connection._writer = mock_stream_writer
+        connection._padding_seen = True
+        connection._clean_exchanges = CLEAN_EXCHANGES_TO_SKIP_DRAIN
+
+        connection.close_nowait()
+
+        assert connection._padding_seen is False
+        assert connection._clean_exchanges == 0
+
+    @pytest.mark.asyncio
+    async def test_connect_resets_learned_state(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """connect() must re-learn framing from scratch."""
+        connection._clean_exchanges = CLEAN_EXCHANGES_TO_SKIP_DRAIN
+
+        async def mock_open_connection(*_args: Any, **_kwargs: Any) -> tuple:
+            return (mock_stream_reader, mock_stream_writer)
+
+        with patch("asyncio.open_connection", side_effect=mock_open_connection):
+            await connection.connect()
+
+        assert connection._clean_exchanges == 0
+        assert connection._skip_timed_windows() is False
 
 
 class TestTriadConnectionVolume:
