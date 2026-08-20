@@ -138,22 +138,21 @@ def db_for_step(step: int) -> float:
 
 def step_for_db(db: float) -> int:
     """
-    Return the nearest device step (1..100) for a desired dB value.
+    Return the nearest device step (1..100) for a device-reported dB value.
 
-    Uses nearest neighbor on the measured monotonic curve.
+    Exact LUT values map to their own step; other values map to the nearest
+    neighbor on the measured monotonic curve.
     """
-    # Find insertion point
+    # Find insertion point; _DBS index k corresponds to device step k + 1
     i = bisect_left(_DBS, db)
     if i <= 0:
         return 1
     if i >= len(_DBS):
-        return 100
+        return len(_DBS)
     # Choose closer neighbor
-    before = _DBS[i - 1]
-    after = _DBS[i]
-    dist_before = abs(db - before)
-    dist_after = abs(after - db)
-    return i if dist_after < dist_before else i - 1
+    dist_before = abs(db - _DBS[i - 1])
+    dist_after = abs(_DBS[i] - db)
+    return i + 1 if dist_after < dist_before else i
 
 
 def percentage_for_step(step: int) -> float:

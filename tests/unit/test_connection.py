@@ -520,7 +520,32 @@ class TestTriadConnectionVolume:
 
         volume = await connection.get_output_volume(1)
 
-        assert 0.0 <= volume <= 1.0
+        assert volume == 0.44  # -25.1 dB is exactly step 44 in the LUT
+
+    @pytest.mark.asyncio
+    async def test_volume_db_round_trip_is_noop(
+        self,
+        connection: TriadConnection,
+        mock_stream_reader: MagicMock,
+        mock_stream_writer: MagicMock,
+    ) -> None:
+        """set(get()) must write back the exact step the device reported."""
+        # Device at step 25 reports its LUT dB value on the text path
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Get Out[1] Volume : -39.7\x00"
+        )
+        connection._reader = mock_stream_reader
+        connection._writer = mock_stream_writer
+
+        volume = await connection.get_output_volume(1)
+        assert volume == 0.25
+
+        mock_stream_reader.readuntil = create_async_mock_method(
+            return_value=b"Output Volume : 0x19\x00"
+        )
+        await connection.set_output_volume(1, volume)
+        written = mock_stream_writer.write.call_args[0][0]
+        assert written[6] == 25  # same step written back, no decay
 
     @pytest.mark.asyncio
     async def test_get_output_volume_parse_error(
