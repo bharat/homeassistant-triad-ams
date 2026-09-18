@@ -1,0 +1,1 @@
+Two buttons, one reboots the device the other factory resets it.
