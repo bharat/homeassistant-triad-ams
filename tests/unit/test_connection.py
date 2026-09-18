@@ -903,7 +903,7 @@ class TestTriadConnectionVolumeSteps:
     ) -> None:
         """Test small volume step up."""
         mock_stream_reader.readuntil = create_async_mock_method(
-            return_value=b"Input Source\x00"
+            return_value=b"Set Out[1] Volume Up\x00"
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
@@ -922,7 +922,7 @@ class TestTriadConnectionVolumeSteps:
     ) -> None:
         """Test large volume step up."""
         mock_stream_reader.readuntil = create_async_mock_method(
-            return_value=b"Input Source\x00"
+            return_value=b"Set Out[1] Volume Up\x00"
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
@@ -941,7 +941,7 @@ class TestTriadConnectionVolumeSteps:
     ) -> None:
         """Test small volume step down."""
         mock_stream_reader.readuntil = create_async_mock_method(
-            return_value=b"Input Source\x00"
+            return_value=b"Set Out[1] Volume Down\x00"
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
@@ -960,7 +960,7 @@ class TestTriadConnectionVolumeSteps:
     ) -> None:
         """Test large volume step down."""
         mock_stream_reader.readuntil = create_async_mock_method(
-            return_value=b"Input Source\x00"
+            return_value=b"Set Out[1] Volume Down\x00"
         )
         connection._reader = mock_stream_reader
         connection._writer = mock_stream_writer
