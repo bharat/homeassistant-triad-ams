@@ -22,6 +22,10 @@ import sys
 DEFAULT_PORT = 52000
 RECV_TIMEOUT = 2.0
 NUM_CHANNELS = 16  # AMS16v2; override at the IP prompt if testing 8/24-ch models
+IPV4_OCTET_COUNT = 4
+IPV4_OCTET_MAX = 255
+ASCII_PRINTABLE_MIN = 32
+ASCII_PRINTABLE_MAX = 127  # exclusive upper bound
 
 
 # --------------------------------------------------------------------------- #
@@ -51,7 +55,9 @@ def prompt_int(text: str, lo: int, hi: int, default: int | None = None) -> int:
         print(f"  Out of range ({lo}-{hi}), try again.")
 
 
-def prompt_float(text: str, lo: float, hi: float, default: float | None = None) -> float:
+def prompt_float(
+    text: str, lo: float, hi: float, default: float | None = None
+) -> float:
     """Prompts for a float within [lo, hi], re-prompting on bad input."""
     suffix = f" ({lo}-{hi})" + (f" [{default}]" if default is not None else "")
     while True:
@@ -87,7 +93,9 @@ def prompt_ip(text: str) -> tuple[int, int, int, int]:
     while True:
         raw = input(f"{text} (a.b.c.d): ").strip()
         parts = raw.split(".")
-        if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        if len(parts) == IPV4_OCTET_COUNT and all(
+            p.isdigit() and 0 <= int(p) <= IPV4_OCTET_MAX for p in parts
+        ):
             return tuple(int(p) for p in parts)  # type: ignore[return-value]
         print("  Invalid IPv4 address, try again.")
 
@@ -169,7 +177,9 @@ class TriadConn:
         """
         if self.sock is None:
             self.connect()
-        assert self.sock is not None
+        if self.sock is None:
+            msg = "connect() did not establish a socket"
+            raise RuntimeError(msg)
         self.sock.sendall(data)
         chunks: list[bytes] = []
         try:
@@ -189,7 +199,10 @@ def show_result(sent: bytes, received: bytes) -> None:
     """Prints the sent frame and the device's response in hex + ASCII."""
     print(f"  Sent ({len(sent)} bytes): {sent.hex(' ').upper()}")
     if received:
-        printable = "".join(chr(b) if 32 <= b < 127 else "." for b in received)
+        printable = "".join(
+            chr(b) if ASCII_PRINTABLE_MIN <= b < ASCII_PRINTABLE_MAX else "."
+            for b in received
+        )
         print(f"  Recv ({len(received)} bytes): {received.hex(' ').upper()}")
         print(f"  Recv (text): {printable}")
     else:
@@ -732,7 +745,7 @@ def cmd_asg_off() -> bytes:
 # --------------------------------------------------------------------------- #
 # Menu structure: category -> list of (label, builder)
 # --------------------------------------------------------------------------- #
-MENU: dict[str, list[tuple[str, "callable"]]] = {
+MENU: dict[str, list[tuple[str, callable]]] = {
     "Power / Network / System": [
         ("Power On", cmd_power_on),
         ("Power Off", cmd_power_off),
@@ -913,7 +926,10 @@ def main() -> int:
     global NUM_CHANNELS
 
     print("Triad AMS16v2 Command Tester")
-    print("(firmware upgrade is intentionally not offered - all other commands are testable)\n")
+    print(
+        "(firmware upgrade is intentionally not offered - all other commands"
+        " are testable)\n"
+    )
 
     host = prompt_str("Triad AMS IP address")
     if not host:
