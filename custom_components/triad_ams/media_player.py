@@ -213,14 +213,19 @@ def _cleanup_stale_entities(
     *,
     entity_registry_getter: Any = None,
 ) -> None:
-    """Remove stale entities for outputs that are no longer active."""
+    """Remove stale media_player entities for outputs that are no longer active."""
     if entity_registry_getter is None:
         entity_registry_getter = er.async_get
     allowed = {f"{entry.entry_id}_output_{o.number}" for o in outputs}
     registry = entity_registry_getter(hass)
     for ent in list(registry.entities.values()):
+        # Scope to this platform's own media_player entities only. A future
+        # platform whose setup runs before media_player's (see PLATFORMS)
+        # would otherwise have its entities swept here too, since their
+        # unique_ids never match the output-only "allowed" pattern below.
         if (
             ent.platform == DOMAIN
+            and ent.domain == "media_player"
             and ent.config_entry_id == entry.entry_id
             and ent.unique_id not in allowed
         ):

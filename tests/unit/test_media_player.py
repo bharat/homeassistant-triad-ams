@@ -10,10 +10,12 @@ from homeassistant.components.media_player import MediaPlayerState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from custom_components.triad_ams.const import DOMAIN
 from custom_components.triad_ams.media_player import (
     InputEntityNotLinkedError,
     InputNotActiveError,
     TriadAmsMediaPlayer,
+    _cleanup_stale_entities,
 )
 from custom_components.triad_ams.models import TriadAmsOutput
 from tests.conftest import create_async_mock_method
@@ -632,3 +634,74 @@ class TestTriadAmsMediaPlayerLinkSubscription:
         media_player._linked_entity_id = "media_player.test"
         media_player._state_getter = state_getter
         assert media_player.media_content_type == "music"
+
+
+def _fake_registry_entry(
+    *, entity_id: str, domain: str, unique_id: str, config_entry_id: str
+) -> MagicMock:
+    """Build a minimal stand-in for a RegistryEntry."""
+    entry = MagicMock()
+    entry.entity_id = entity_id
+    entry.platform = DOMAIN
+    entry.domain = domain
+    entry.unique_id = unique_id
+    entry.config_entry_id = config_entry_id
+    return entry
+
+
+class TestCleanupStaleEntities:
+    """
+    Tests for _cleanup_stale_entities.
+
+    A future platform that loads before media_player (see PLATFORMS in
+    __init__.py) would already have its entities in the registry by the
+    time this runs. Regression coverage for a bug where the sweep matched
+    on unique_id alone across every HA domain, which would delete every
+    entity from any such platform on every restart -- this integration
+    only has media_player today, but this test pins the invariant so it
+    doesn't silently break the moment a second platform is added.
+    """
+
+    def test_only_stale_media_player_entities_are_removed(self) -> None:
+        """Only inactive-output media_player entities are removed."""
+        entry = MagicMock()
+        entry.entry_id = "abc123"
+        active_output = MagicMock()
+        active_output.number = 13
+
+        entries = {
+            # Stale media_player entity: output 5 is no longer active.
+            "media_player.triad_ams_output_5": _fake_registry_entry(
+                entity_id="media_player.triad_ams_output_5",
+                domain="media_player",
+                unique_id="abc123_output_5",
+                config_entry_id="abc123",
+            ),
+            # Current media_player entity: output 13 is active.
+            "media_player.triad_ams_output_13": _fake_registry_entry(
+                entity_id="media_player.triad_ams_output_13",
+                domain="media_player",
+                unique_id="abc123_output_13",
+                config_entry_id="abc123",
+            ),
+            # A same-integration, other-domain entity never matches the
+            # "_output_N" unique_id pattern and must survive regardless.
+            "sensor.triad_ams_diagnostic": _fake_registry_entry(
+                entity_id="sensor.triad_ams_diagnostic",
+                domain="sensor",
+                unique_id="abc123_diagnostic",
+                config_entry_id="abc123",
+            ),
+        }
+        registry = MagicMock()
+        registry.entities = entries
+        registry.async_remove = MagicMock()
+
+        _cleanup_stale_entities(
+            MagicMock(),
+            entry,
+            [active_output],
+            entity_registry_getter=lambda _hass: registry,
+        )
+
+        registry.async_remove.assert_called_once_with("media_player.triad_ams_output_5")
