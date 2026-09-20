@@ -1,4 +1,4 @@
-[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration) [![Validate](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml) [![Lint](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml) [![Release](https://img.shields.io/github/v/release/bharat/homeassistant-triad-ams?sort=semver)](https://github.com/bharat/homeassistant-triad-ams/releases)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration) [![Validate](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/validate.yml?query=branch%3Amain) [![Lint](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/bharat/homeassistant-triad-ams/actions/workflows/lint.yml?query=branch%3Amain) [![Release](https://img.shields.io/github/v/release/bharat/homeassistant-triad-ams?sort=semver)](https://github.com/bharat/homeassistant-triad-ams/releases)
 
 Triad AMS for Home Assistant
 ============================
@@ -122,6 +122,7 @@ Notes
 -----
 - You can rename outputs (zones) and set areas from each entity’s settings page
 - If you later change the active lists or links in Options, the integration reloads and updates entities automatically
+- In Options, each output has an optional maximum volume (percentage, default 100% = no limit). It caps volume commands sent from Home Assistant; if the volume is raised above the cap from a keypad, the entity reports the actual volume and exposes the cap as a `max_volume` attribute
 - The device model selected during initial setup determines the number of available inputs and outputs
 
 Services

@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from asyncio import StreamReader, StreamWriter
 
 from .const import (
+    BUFFER_DRAIN_TIMEOUT,
+    CLEAN_EXCHANGES_TO_SKIP_DRAIN,
     CONNECTION_TIMEOUT,
     DEVICE_COMMAND_DELAY,
     POST_CONNECT_DELAY,
@@ -37,6 +39,16 @@ class TriadConnection:
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
         self._protocol_debug = protocol_debug
+        # Single byte read past a frame boundary while draining NUL padding;
+        # prepended to the next frame read so no real data is lost.
+        self._read_ahead: bytes = b""
+        # Per-connection framing detection (reset on every connect/close):
+        # once padding or stale bytes are seen, the timed drain/flush windows
+        # stay active for the life of the connection. After enough consecutive
+        # clean exchanges the windows are skipped, so single-NUL firmware does
+        # not pay their timeouts on every command.
+        self._padding_seen: bool = False
+        self._clean_exchanges: int = 0
 
     def _log_protocol(self, msg: str, *args: object) -> None:
         """Emit protocol logs when enabled via options."""
@@ -46,6 +58,19 @@ class TriadConnection:
     def set_protocol_debug(self, *, enabled: bool) -> None:
         """Enable or disable protocol-level logging."""
         self._protocol_debug = enabled
+
+    def _reset_framing_state(self) -> None:
+        """Forget learned framing so the next connection re-learns from scratch."""
+        self._read_ahead = b""
+        self._padding_seen = False
+        self._clean_exchanges = 0
+
+    def _skip_timed_windows(self) -> bool:
+        """Return True once single-NUL framing has been learned."""
+        return (
+            not self._padding_seen
+            and self._clean_exchanges >= CLEAN_EXCHANGES_TO_SKIP_DRAIN
+        )
 
     @staticmethod
     def _summarize_bytes(data: bytes, *, max_bytes: int = 16) -> str:
@@ -70,6 +95,7 @@ class TriadConnection:
             self._log_protocol("connect(): already connected; skipping")
             return
         self._log_protocol("connect(): begin to %s:%s", self.host, self.port)
+        self._reset_framing_state()
         self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
         self._log_protocol("connect(): connected to %s:%s", self.host, self.port)
         # Some devices need a short delay after connect before accepting commands
@@ -83,6 +109,7 @@ class TriadConnection:
             await self._writer.wait_closed()
             self._reader = None
             self._writer = None
+            self._reset_framing_state()
             self._log_protocol("disconnect(): closed connection")
 
     def close_nowait(self) -> None:
@@ -106,6 +133,7 @@ class TriadConnection:
                 self._writer.close()
         self._reader = None
         self._writer = None
+        self._reset_framing_state()
         self._log_protocol("close_nowait(): cleared reader/writer")
 
     async def _ensure_connection_for_send(self) -> None:
@@ -150,8 +178,94 @@ class TriadConnection:
         except OSError:
             # Re-raise OSError as-is (might be from socket shutdown)
             raise
+        if self._read_ahead:
+            response = self._read_ahead + response
+            self._read_ahead = b""
         self._log_protocol("RX %s", self._summarize_bytes(response))
+        await self._drain_nul_padding(reader)
         return response
+
+    async def _drain_nul_padding(self, reader: "StreamReader") -> None:
+        """
+        Discard NUL padding that may trail a response frame.
+
+        Some firmware revisions pad every response to a fixed-length frame
+        (observed: 150 bytes) with trailing 0x00 bytes, while others terminate
+        with a single 0x00. readuntil() consumes only the first NUL, so the
+        padding would otherwise be read as the next command's response and
+        desync every subsequent exchange (issue #164). A non-NUL byte ends the
+        drain and is kept in ``_read_ahead`` for the next frame read, so no
+        real data can be lost.
+
+        Framing is learned per connection: once enough consecutive exchanges
+        finish with nothing buffered (single-NUL firmware), the timed drain is
+        skipped so steady-state commands pay no timeout. Draining any padding
+        pins the full drain behavior for the life of the connection.
+        """
+        if self._skip_timed_windows():
+            return
+        drained = 0
+        held_byte = False
+        while True:
+            try:
+                byte = await asyncio.wait_for(
+                    reader.readexactly(1), timeout=BUFFER_DRAIN_TIMEOUT
+                )
+            except (OSError, asyncio.IncompleteReadError):
+                # Timeout means no more buffered bytes; EOF/connection errors
+                # will surface on the next read.
+                break
+            if byte != b"\x00":
+                self._read_ahead = byte
+                held_byte = True
+                break
+            drained += 1
+        if drained:
+            self._padding_seen = True
+            self._clean_exchanges = 0
+            self._log_protocol("Drained %d trailing NUL padding byte(s)", drained)
+        elif held_byte:
+            self._clean_exchanges = 0
+        else:
+            self._clean_exchanges += 1
+            if self._skip_timed_windows():
+                self._log_protocol(
+                    "Learned single-NUL framing after %d clean exchange(s); "
+                    "skipping timed drain/flush windows",
+                    self._clean_exchanges,
+                )
+
+    async def _flush_stale_buffer(self, reader: "StreamReader") -> None:
+        """
+        Discard any stale bytes buffered from previous exchanges.
+
+        Belt-and-braces companion to _drain_nul_padding(): anything still
+        buffered right before a new command is written cannot belong to that
+        command's response, so it is logged and dropped.
+
+        The timed read is skipped once single-NUL framing has been learned;
+        finding stale bytes pins the full windows for the connection's life.
+        """
+        stale = bytearray(self._read_ahead)
+        self._read_ahead = b""
+        while not self._skip_timed_windows():
+            try:
+                chunk = await asyncio.wait_for(
+                    reader.read(1024), timeout=BUFFER_DRAIN_TIMEOUT
+                )
+            except (OSError, asyncio.IncompleteReadError):
+                break
+            if not chunk:
+                # EOF; the next read will surface the closed connection.
+                break
+            stale += chunk
+        if stale:
+            self._padding_seen = True
+            self._clean_exchanges = 0
+            self._log_protocol(
+                "Flushed stale buffered bytes before send: %s",
+                self._summarize_bytes(bytes(stale)),
+            )
 
     def _validate_response(
         self, text: str, _expect: str | None, command: bytes
@@ -185,6 +299,7 @@ class TriadConnection:
             # Create local non-optional references for type checkers
             writer = cast("asyncio.StreamWriter", self._writer)
             reader = cast("asyncio.StreamReader", self._reader)
+            await self._flush_stale_buffer(reader)
             await self._write_command_bytes(writer, command)
             response = await self._read_response_bytes(reader)
             text = response.decode(errors="replace").strip("\x00").strip()
@@ -198,7 +313,8 @@ class TriadConnection:
                 and not re.search(expect, text, re.IGNORECASE)
             ):
                 if re.search(
-                    r"^AudioSense:Input\[\d+\]\s*:\s*(0|1)\s*$",
+                    # Some firmware appends a literal "$" to AudioSense events.
+                    r"^AudioSense:Input\[\d+\]\s*:\s*(0|1)\s*\$?\s*$",
                     text,
                     re.IGNORECASE,
                 ):
@@ -274,7 +390,7 @@ class TriadConnection:
             db = float(m.group(1))
             step = step_for_db(db)
             return step / VOLUME_STEPS
-        _LOGGER.error("Could not parse output volume from response: %s", resp)
+        _LOGGER.warning("Could not parse output volume from response: %s", resp)
         return 0.0
 
     async def set_output_mute(self, output_channel: int, *, mute: bool) -> None:
@@ -416,7 +532,7 @@ class TriadConnection:
         m = re.search(r"input (\d+)", resp)
         if m:
             return int(m.group(1))
-        _LOGGER.error("Could not parse output source from response: %s", resp)
+        _LOGGER.warning("Could not parse output source from response: %s", resp)
         return None
 
     async def set_trigger_zone(self, zone: int = 1, *, on: bool) -> None:

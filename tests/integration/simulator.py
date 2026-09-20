@@ -24,12 +24,21 @@ class TriadAmsSimulator:
         port: int = 0,
         input_count: int = 8,
         output_count: int = 8,
+        *,
+        frame_size: int | None = None,
     ) -> None:
-        """Initialize the simulator."""
+        """
+        Initialize the simulator.
+
+        If frame_size is set, every response is NUL-padded to that fixed
+        length, mimicking firmware that sends fixed-length frames (issue
+        #164) instead of single-NUL-terminated ones.
+        """
         self.host = host
         self.port = port
         self.input_count = input_count
         self.output_count = output_count
+        self.frame_size = frame_size
 
         # Device state
         self._volumes: dict[int, int] = dict.fromkeys(
@@ -123,7 +132,10 @@ class TriadAmsSimulator:
     async def _send_response(self, writer: asyncio.StreamWriter, response: str) -> None:
         """Send response to client."""
         _LOGGER.debug("Sending response: %s", response)
-        writer.write(response.encode() + b"\x00")
+        payload = response.encode() + b"\x00"
+        if self.frame_size is not None:
+            payload = payload.ljust(self.frame_size, b"\x00")
+        writer.write(payload)
         await writer.drain()
         _LOGGER.debug("Response sent")
         # Small delay for device tolerance
@@ -428,9 +440,13 @@ async def triad_ams_simulator(
     port: int = 0,
     input_count: int = 8,
     output_count: int = 8,
+    *,
+    frame_size: int | None = None,
 ) -> AsyncGenerator[tuple[TriadAmsSimulator, str, int]]:
     """Context manager for TriadAMS simulator."""
-    simulator = TriadAmsSimulator(host, port, input_count, output_count)
+    simulator = TriadAmsSimulator(
+        host, port, input_count, output_count, frame_size=frame_size
+    )
     try:
         host_addr, port_addr = await simulator.start()
         yield (simulator, host_addr, port_addr)

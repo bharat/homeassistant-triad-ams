@@ -110,6 +110,34 @@ class TestTriadAmsMediaPlayerInitialization:
         assert device_info["model"] == "Audio Matrix"
 
 
+class TestTriadAmsMediaPlayerMaxVolumeAttribute:
+    """Test the max_volume extra state attribute."""
+
+    def test_max_volume_exposed_when_capped(
+        self, mock_output: MagicMock, mock_config_entry: MagicMock
+    ) -> None:
+        """Test that the cap is exposed when set below 1.0."""
+        mock_output.max_volume = 0.5
+        entity = TriadAmsMediaPlayer(mock_output, mock_config_entry, {1: None})
+        attrs = entity.extra_state_attributes
+        assert attrs["max_volume"] == 0.5
+        assert attrs["output_channel"] == 1
+
+    def test_max_volume_hidden_when_uncapped(
+        self, mock_output: MagicMock, mock_config_entry: MagicMock
+    ) -> None:
+        """Test that the attribute is absent at the default cap of 1.0."""
+        mock_output.max_volume = 1.0
+        entity = TriadAmsMediaPlayer(mock_output, mock_config_entry, {1: None})
+        assert "max_volume" not in entity.extra_state_attributes
+
+    def test_max_volume_hidden_when_unset(
+        self, media_player: TriadAmsMediaPlayer
+    ) -> None:
+        """Test that outputs without the attribute behave as uncapped."""
+        assert "max_volume" not in media_player.extra_state_attributes
+
+
 class TestTriadAmsMediaPlayerState:
     """Test state properties."""
 

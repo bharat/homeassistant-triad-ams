@@ -1,7 +1,7 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Pin to a specific version of ruff's pre-commit hooks
-    rev: v0.14.10
+    rev: v0.16.1
     hooks:
       - id: ruff-check
         args: [ --fix ]

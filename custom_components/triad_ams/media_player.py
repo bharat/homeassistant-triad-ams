@@ -37,11 +37,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -49,6 +52,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
@@ -166,13 +170,14 @@ def _build_outputs(
     active_outputs: list[int],
     coordinator: TriadCoordinator,
     input_names: dict[int, str],
+    output_max_volumes: dict[str, float],
 ) -> list[TriadAmsOutput]:
     """Build output models."""
     outputs: list[TriadAmsOutput] = []
     for ch in sorted(active_outputs):
-        outputs.append(
-            TriadAmsOutput(ch, f"Output {ch}", coordinator, outputs, input_names)
-        )
+        output = TriadAmsOutput(ch, f"Output {ch}", coordinator, outputs, input_names)
+        output.max_volume = float(output_max_volumes.get(str(ch), 1.0))
+        outputs.append(output)
     return outputs
 
 
@@ -516,8 +521,12 @@ async def async_setup_entry(
 
     input_names = _build_input_names(hass, active_inputs, input_links_opt)
     inputs = _build_inputs(active_inputs, input_names, input_links_opt, coordinator)
-    outputs = _build_outputs(active_outputs, coordinator, input_names)
+    output_max_volumes: dict[str, float] = entry.options.get("output_max_volumes", {})
+    outputs = _build_outputs(
+        active_outputs, coordinator, input_names, output_max_volumes
+    )
 
+    # Ensure coordinator worker is running before any refresh enqueues commands
     try:
         await coordinator.start()
     except Exception:
@@ -555,7 +564,7 @@ async def async_setup_entry(
     _remove_orphaned_devices(hass, entry)
 
 
-class TriadAmsMediaPlayer(MediaPlayerEntity):
+class TriadAmsMediaPlayer(MediaPlayerEntity, RestoreEntity):
     """Media player entity representing a Triad AMS output."""
 
     PARALLEL_UPDATES = 1  # Silver requirement: limit concurrent updates
@@ -775,10 +784,14 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose Triad channel metadata for easier identification."""
-        return {
+        attrs: dict[str, Any] = {
             "output_channel": self.output.number,
             "input_channel": self.output.source,
         }
+        max_volume = getattr(self.output, "max_volume", 1.0)
+        if max_volume < 1.0:
+            attrs["max_volume"] = max_volume
+        return attrs
 
     # ---- Core media player properties and commands ----
     @property
@@ -855,8 +868,40 @@ class TriadAmsMediaPlayer(MediaPlayerEntity):
         else:
             _LOGGER.error("Unknown source name: %s", source)
 
+    async def _async_restore_last_state(self) -> None:
+        """
+        Seed provisional Triad-native state from the last saved HA state.
+
+        Display-only: nothing is ever written to the device based on the
+        restored snapshot, and the first successful device poll overwrites
+        it with device truth unconditionally. Linked-source media metadata
+        (title/artist/artwork/position) is intentionally not restored; it
+        re-derives live from the linked entity.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return
+        attrs = last_state.attributes
+        volume = attrs.get(ATTR_MEDIA_VOLUME_LEVEL)
+        muted = attrs.get(ATTR_MEDIA_VOLUME_MUTED)
+        # input_channel is the Triad-native routed input from
+        # extra_state_attributes; restoring by number (not source name)
+        # survives linked entities being renamed or not yet loaded.
+        source = attrs.get("input_channel")
+        self.output.restore_state(
+            volume=volume if isinstance(volume, int | float) else None,
+            muted=muted if isinstance(muted, bool) else None,
+            source=source if isinstance(source, int) else None,
+            is_on=last_state.state != MediaPlayerState.OFF,
+        )
+
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant: seed and write initial state."""
+        await super().async_added_to_hass()
+        # Only seed from the saved snapshot while device state is still
+        # unknown (volume is None until the first successful poll).
+        if self.output.volume is None:
+            await self._async_restore_last_state()
         self._update_link_subscription()
         # Subscribe to coordinator availability changes (Silver requirement)
         coordinator = self.output.coordinator

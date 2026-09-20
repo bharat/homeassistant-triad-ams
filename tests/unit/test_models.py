@@ -186,6 +186,110 @@ class TestTriadAmsOutputVolume:
         # Should not raise
 
 
+class TestTriadAmsOutputMaxVolume:
+    """Test maximum-volume cap enforcement."""
+
+    @pytest.fixture
+    def capped_output(
+        self, mock_coordinator: MagicMock, input_names: dict[int, str]
+    ) -> TriadAmsOutput:
+        """Create an output capped at 50% volume."""
+        output = TriadAmsOutput(1, "Output 1", mock_coordinator, None, input_names)
+        output.max_volume = 0.5
+        return output
+
+    @pytest.mark.asyncio
+    async def test_set_volume_above_cap_clamps(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that setting volume above the cap clamps to the cap."""
+        await capped_output.set_volume(0.8)
+        mock_coordinator.set_output_volume.assert_called_once_with(1, 0.5)
+        assert capped_output.volume == 0.5
+
+    @pytest.mark.asyncio
+    async def test_set_volume_below_cap_passes_through(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that setting volume below the cap is unaffected."""
+        await capped_output.set_volume(0.3)
+        mock_coordinator.set_output_volume.assert_called_once_with(1, 0.3)
+        assert capped_output.volume == 0.3
+
+    @pytest.mark.asyncio
+    async def test_volume_up_at_cap_stays_at_cap(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that stepping up at the cap does not step."""
+        capped_output._volume = 0.5
+        await capped_output.volume_up_step(large=False)
+        mock_coordinator.volume_step_up.assert_not_called()
+        assert capped_output.volume == 0.5
+
+    @pytest.mark.asyncio
+    async def test_volume_up_above_cap_does_not_fight_external_state(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that an externally raised volume is neither stepped nor lowered."""
+        capped_output._volume = 0.8
+        await capped_output.volume_up_step(large=False)
+        mock_coordinator.volume_step_up.assert_not_called()
+        mock_coordinator.set_output_volume.assert_not_called()
+        assert capped_output.volume == 0.8
+
+    @pytest.mark.asyncio
+    async def test_volume_up_below_cap_steps_normally(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a small step below the cap goes to the device untouched."""
+        capped_output._volume = 0.4
+        await capped_output.volume_up_step(large=False)
+        mock_coordinator.volume_step_up.assert_called_once_with(1, large=False)
+        mock_coordinator.set_output_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_volume_up_cold_cache_reads_before_stepping(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that an unknown cached volume is read so the cap holds."""
+        mock_coordinator.get_output_volume.return_value = 0.5
+        await capped_output.volume_up_step(large=False)
+        mock_coordinator.get_output_volume.assert_called_once_with(1)
+        mock_coordinator.volume_step_up.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_large_step_overshoot_is_clamped_back(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a large step landing above the cap is pulled back to it."""
+        capped_output._volume = 0.45
+        mock_coordinator.get_output_volume.return_value = 0.55
+        await capped_output.volume_up_step(large=True)
+        mock_coordinator.volume_step_up.assert_called_once_with(1, large=True)
+        mock_coordinator.set_output_volume.assert_called_once_with(1, 0.5)
+        assert capped_output.volume == 0.5
+
+    @pytest.mark.asyncio
+    async def test_uncapped_step_skips_read_back(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that an uncapped output steps without extra device reads."""
+        output._volume = 0.99
+        await output.volume_up_step(large=False)
+        mock_coordinator.volume_step_up.assert_called_once_with(1, large=False)
+        mock_coordinator.get_output_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_reports_external_volume_above_cap(
+        self, capped_output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a device volume above the cap is reported truthfully."""
+        mock_coordinator.get_output_volume.return_value = 0.8
+        await capped_output.refresh()
+        assert capped_output.volume == 0.8
+        mock_coordinator.set_output_volume.assert_not_called()
+
+
 class TestTriadAmsOutputMute:
     """Test mute operations."""
 

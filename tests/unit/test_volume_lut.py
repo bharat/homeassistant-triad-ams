@@ -46,7 +46,9 @@ class TestStepForDb:
     def test_exact_matches(self) -> None:
         """Test exact dB matches."""
         assert step_for_db(-100.3) == 1
-        assert step_for_db(0.0) == 99  # 0.0 dB maps to step 99, not 100
+        assert step_for_db(-39.7) == 25
+        assert step_for_db(-21.2) == 50
+        assert step_for_db(0.0) == 100
 
     def test_near_matches(self) -> None:
         """Test near dB matches."""
@@ -66,6 +68,37 @@ class TestStepForDb:
         step = step_for_db(-30.0)
         assert 1 <= step <= 100
         assert isinstance(step, int)
+
+
+class TestRoundTrip:
+    """
+    Round-trip stability of the LUT mapping.
+
+    Step 0 (output off) has no dB entry in the measured LUT; the device
+    reports it via the hex path, so these properties cover steps 1..100.
+    """
+
+    def test_step_db_step_identity_all_steps(self) -> None:
+        """Every step's own LUT dB value must map back to exactly that step."""
+        for step in range(1, 101):
+            assert step_for_db(db_for_step(step)) == step
+
+    def test_fraction_round_trip_no_decay(self) -> None:
+        """
+        Repeated set(get()) round trips at the fraction level must not drift.
+
+        Mirrors the device I/O path: HA fraction -> set command byte
+        (round(fraction * 100), as in connection.set_output_volume) ->
+        device-reported dB (via LUT) -> parsed fraction (step_for_db / 100,
+        as in connection.get_output_volume).
+        """
+        for step in range(1, 101):
+            fraction = step / 100.0
+            for _ in range(3):
+                command_byte = round(max(0.0, min(fraction, 1.0)) * 100)
+                reported_db = db_for_step(command_byte)
+                fraction = step_for_db(reported_db) / 100.0
+            assert fraction == step / 100.0
 
 
 class TestPercentageForStep:

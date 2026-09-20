@@ -245,6 +245,7 @@ class TestTriadAmsOptionsFlowHandler:
             "active_inputs": [1, 2],
             "active_outputs": [1],
             "input_links": {"1": "media_player.input1"},
+            "output_max_volumes": {"1": 0.5},
         }
 
     @pytest.fixture
@@ -389,6 +390,54 @@ class TestTriadAmsOptionsFlowHandler:
         # would have called async_update_entry by checking the flow
         # completed with correct data
         assert "active_inputs" in result["data"]
+
+    @pytest.mark.asyncio
+    async def test_options_flow_max_volume_round_trip(
+        self, options_flow: TriadAmsOptionsFlowHandler
+    ) -> None:
+        """Test that per-output max volume percentages round-trip as fractions."""
+        user_input = {
+            "output_1": True,
+            "output_2": True,
+            "max_volume_output_1": 50,
+            "max_volume_output_2": 100,
+        }
+
+        result = await options_flow.async_step_init(user_input)
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        # 100% means uncapped and is not stored
+        assert result["data"]["output_max_volumes"] == {"1": 0.5}
+
+    @pytest.mark.asyncio
+    async def test_options_flow_no_caps_set(
+        self, options_flow: TriadAmsOptionsFlowHandler
+    ) -> None:
+        """Test that omitting all max volume fields stores an empty mapping."""
+        user_input = {
+            "output_1": True,
+        }
+
+        result = await options_flow.async_step_init(user_input)
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"]["output_max_volumes"] == {}
+
+    @pytest.mark.asyncio
+    async def test_options_flow_form_max_volume_defaults(
+        self, options_flow: TriadAmsOptionsFlowHandler
+    ) -> None:
+        """Test that the form pre-populates existing caps and 100% otherwise."""
+        result = await options_flow.async_step_init(None)
+
+        assert result["type"] == FlowResultType.FORM
+        defaults = {
+            str(key): key.default()
+            for key in result["data_schema"].schema
+            if str(key).startswith("max_volume_output_")
+        }
+        assert defaults["max_volume_output_1"] == 50
+        assert defaults["max_volume_output_2"] == 100
 
     @pytest.mark.asyncio
     async def test_options_flow_preserves_existing_links(
