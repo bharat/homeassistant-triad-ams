@@ -122,12 +122,14 @@ class TestEntityCleanup:
         # Create mock entities
         entity1 = MagicMock()
         entity1.platform = "triad_ams"
+        entity1.domain = "media_player"
         entity1.config_entry_id = "test_entry_123"
         entity1.unique_id = "test_entry_123_output_1"
         entity1.entity_id = "media_player.test_output_1"
 
         entity2 = MagicMock()
         entity2.platform = "triad_ams"
+        entity2.domain = "media_player"
         entity2.config_entry_id = "test_entry_123"
         entity2.unique_id = "test_entry_123_output_99"  # Stale
         entity2.entity_id = "media_player.test_output_99"
