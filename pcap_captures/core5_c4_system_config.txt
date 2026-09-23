@@ -1,0 +1,4 @@
+Debug Mode(s): [Print|Print (Trace)|Log|Print and Log|Off]
+Firmware Updates: [Manual|Automatic]
+Advanced Config: [Off|On]
+Input Audio Sense: [Disabled|Enabled]
