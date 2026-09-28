@@ -1,0 +1,18 @@
+DSP Settings:
+Choose an Output: {List of outputs} selected output 13 for recordings
+Tone Control:
+Loudness: Enable|Disable
+ Low Shelf (Bass): 
+Freq: 20-2000Hz set to 200 will change to 100 and 500 then back to 200
+Gain: +/-12
+
+High Shelf(Trebel): 
+Freq 20-20000Hz and Gain the same
+
+Enable 2.1 Audio Zone: Allows output 2 as a paired sub output for this output this will disconnect any rooms associated with output 2 Will try this at the end with output 16 and output 13 as it's pair
+
+Speaker Preset: None this could be a features plugin for peopel to supply presets
+
+Room equalizer and a graph of the freqencies: Flat is default, ability to save a profile as a named one for reslection:
+
+EQ1-6: Freq 20-20000hz, Q (0.5-15.0), Gain +/- 12

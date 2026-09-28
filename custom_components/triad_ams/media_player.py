@@ -432,8 +432,13 @@ def _cleanup_stale_entities(
     allowed = allowed_outputs | allowed_inputs
     registry = entity_registry_getter(hass)
     for ent in list(registry.entities.values()):
+        # Scope to this platform's own media_player entities only. A future
+        # platform whose setup runs before media_player's (see PLATFORMS)
+        # would otherwise have its entities swept here too, since their
+        # unique_ids never match the output-only "allowed" pattern below.
         if (
             ent.platform == DOMAIN
+            and ent.domain == "media_player"
             and ent.config_entry_id == entry.entry_id
             and ent.unique_id not in allowed
         ):

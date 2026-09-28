@@ -1,0 +1,16 @@
+Output1:
+Renaming: testOutput1
+Output Source: {List of inputs byname} Selecting Input 3 for the test
+Audio Delay: 0-80ms
+Mono/DSP Bypass/Stereo: Selection in that order
+Mute: Enable|Disable
+Output Volume: 0-100
+max Volume: 0-100
+Balance: +/-12 right Left
+Assignable Trigger: Enable|Disable
+TestTone: On|Off
+Test Tone Volume: -24 to 0
+
+Same for output13
+
+Assign Names based on any bound connections

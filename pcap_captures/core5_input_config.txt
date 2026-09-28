@@ -1,0 +1,10 @@
+Input 1:
+Renaming: testingInput1
+Input Gain: +/-12
+Audio Delay: 0-80
+Input 16:
+Renaming: testingInput16
+Input Gain: +/-12
+Audio Delay: 0-80
+
+Assigne Names Button: Assigne names based on the inbound connections

@@ -33,3 +33,17 @@ max-complexity = 25
     "SLF001", # Private member accessed (accessing private members is normal in tests)
     "ARG002", # Unused method argument (pytest fixtures are dependency-injected)
 ]
+# pcap_captures/ is protocol reference material and a standalone interactive
+# debug tool, not part of the shipped integration -- the Google-docstring and
+# print()-avoidance conventions that apply to custom_components/ don't fit an
+# interactive CLI's small per-menu-item handlers.
+"pcap_captures/**/*.py" = [
+    "T201",   # `print` used (this is a terminal UI, not a library)
+    "D103",   # Missing docstring in public function (menu handlers are self-describing)
+    "D401",   # First line of docstring should be in imperative mood
+    "D213",   # Multi-line docstring summary should start at the second line
+    "D413",   # Missing blank line after last section
+    "PLW0603", # global statement used to set NUM_CHANNELS from a one-time startup
+               # prompt in this single-threaded CLI script; a state container class
+               # would be pure ceremony for a debug tool with one mutable setting
+]

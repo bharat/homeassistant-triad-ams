@@ -447,6 +447,7 @@ class TestCleanupStaleEntities:
         mock_registry = MagicMock(spec=er.EntityRegistry)
         mock_entity = MagicMock()
         mock_entity.platform = "triad_ams"
+        mock_entity.domain = "media_player"
         mock_entity.config_entry_id = "test_entry_123"
         mock_entity.unique_id = "test_entry_123_output_3"  # Stale
         mock_entity.entity_id = "media_player.triad_ams_output_3"
@@ -480,6 +481,7 @@ class TestCleanupStaleEntities:
         mock_registry = MagicMock(spec=er.EntityRegistry)
         mock_entity = MagicMock()
         mock_entity.platform = "triad_ams"
+        mock_entity.domain = "media_player"
         mock_entity.config_entry_id = "test_entry_123"
         mock_entity.unique_id = "test_entry_123_output_1"  # Active
         mock_entity.entity_id = "media_player.triad_ams_output_1"
@@ -534,6 +536,7 @@ class TestCleanupStaleEntities:
         mock_registry = MagicMock(spec=er.EntityRegistry)
         stale_input = MagicMock()
         stale_input.platform = "triad_ams"
+        stale_input.domain = "media_player"
         stale_input.config_entry_id = mock_config_entry.entry_id
         stale_input.unique_id = f"{mock_config_entry.entry_id}_input_3"
         stale_input.entity_id = "media_player.triad_ams_input_3"
@@ -568,6 +571,7 @@ class TestCleanupStaleEntities:
         mock_registry = MagicMock(spec=er.EntityRegistry)
         input_entity = MagicMock()
         input_entity.platform = "triad_ams"
+        input_entity.domain = "media_player"
         input_entity.config_entry_id = mock_config_entry.entry_id
         input_entity.unique_id = f"{mock_config_entry.entry_id}_input_1"
         input_entity.entity_id = "media_player.triad_ams_input_1"

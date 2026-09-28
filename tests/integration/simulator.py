@@ -261,7 +261,7 @@ class TriadAmsSimulator:
         if not self._validate_output(output):
             return None
         self._volumes[output] = min(100, self._volumes.get(output, 50) + 1)
-        return "Input Source : input 1"
+        return f"Set Out[{output}] Volume Up"
 
     def _handle_volume_step_up_large(self, cmd_bytes: bytes) -> str | None:
         """Handle volume step up large: FF 55 03 03 15 <output>."""
@@ -269,7 +269,7 @@ class TriadAmsSimulator:
         if not self._validate_output(output):
             return None
         self._volumes[output] = min(100, self._volumes.get(output, 50) + 5)
-        return "Input Source : input 1"
+        return f"Set Out[{output}] Volume Up"
 
     def _handle_volume_step_down_small(self, cmd_bytes: bytes) -> str | None:
         """Handle volume step down small: FF 55 03 03 14 <output>."""
@@ -277,9 +277,7 @@ class TriadAmsSimulator:
         if not self._validate_output(output):
             return None
         self._volumes[output] = max(0, self._volumes.get(output, 50) - 1)
-        if self._volumes[output] == 0:
-            return "Audio Off"
-        return "Input Source : input 1"
+        return f"Set Out[{output}] Volume Down"
 
     def _handle_volume_step_down_large(self, cmd_bytes: bytes) -> str | None:
         """Handle volume step down large: FF 55 03 03 16 <output>."""
@@ -287,9 +285,7 @@ class TriadAmsSimulator:
         if not self._validate_output(output):
             return None
         self._volumes[output] = max(0, self._volumes.get(output, 50) - 5)
-        if self._volumes[output] == 0:
-            return "Audio Off"
-        return "Input Source : input 1"
+        return f"Set Out[{output}] Volume Down"
 
     def _handle_get_source(self, cmd_bytes: bytes) -> str | None:
         """Handle get output source: FF 55 04 03 1D F5 <output>."""

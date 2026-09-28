@@ -449,7 +449,8 @@ class TriadConnection:
         cmd = bytearray.fromhex("FF55030315" if large else "FF55030313") + bytes(
             [output_channel - 1]
         )
-        resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
+        # Device echoes "Set Out[N] Volume Up" (pcap-verified live, 2026-09).
+        resp = await self._send_command(cmd, expect=r"Volume\s+Up")
         if large:
             _LOGGER.info("Volume step up (large) for output %d", output_channel)
             self._log_protocol(
@@ -471,7 +472,8 @@ class TriadConnection:
         cmd = bytearray.fromhex("FF55030316" if large else "FF55030314") + bytes(
             [output_channel - 1]
         )
-        resp = await self._send_command(cmd, expect=r"(Input\s+Source|Audio\s+Off)")
+        # Device echoes "Set Out[N] Volume Down" (pcap-verified live, 2026-09).
+        resp = await self._send_command(cmd, expect=r"Volume\s+Down")
         if large:
             _LOGGER.info("Volume step down (large) for output %d", output_channel)
             self._log_protocol(
