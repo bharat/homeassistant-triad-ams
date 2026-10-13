@@ -529,8 +529,6 @@ class TestRemoveOrphanedDevices:
 
         mock_device = MagicMock()
         mock_device.id = "device_123"
-        mock_device.config_entries = {"test_entry_123"}
-        mock_device_registry.devices = {"device_123": mock_device}
         mock_device_registry.async_remove_device = MagicMock()
 
         # No entities for this device
@@ -558,6 +556,7 @@ class TestRemoveOrphanedDevices:
             entity_registry_getter=get_entity_registry,
             device_registry_getter=get_device_registry,
             entries_for_device_getter=get_entries_for_device,
+            entries_for_config_entry_getter=lambda _reg, _entry_id: [mock_device],
         )
 
         mock_device_registry.async_remove_device.assert_called_once_with("device_123")
@@ -571,8 +570,6 @@ class TestRemoveOrphanedDevices:
 
         mock_device = MagicMock()
         mock_device.id = "device_123"
-        mock_device.config_entries = {"test_entry_123"}
-        mock_device_registry.devices = {"device_123": mock_device}
         mock_device_registry.async_remove_device = MagicMock()
 
         # Has entities
@@ -603,6 +600,7 @@ class TestRemoveOrphanedDevices:
             entity_registry_getter=get_entity_registry,
             device_registry_getter=get_device_registry,
             entries_for_device_getter=get_entries_for_device,
+            entries_for_config_entry_getter=lambda _reg, _entry_id: [mock_device],
         )
 
         mock_device_registry.async_remove_device.assert_not_called()
@@ -613,11 +611,6 @@ class TestRemoveOrphanedDevices:
         """Test that devices from other entries are not removed."""
         mock_entity_registry = MagicMock(spec=er.EntityRegistry)
         mock_device_registry = MagicMock(spec=dr.DeviceRegistry)
-
-        mock_device = MagicMock()
-        mock_device.id = "device_123"
-        mock_device.config_entries = {"other_entry"}  # Different entry
-        mock_device_registry.devices = {"device_123": mock_device}
         mock_device_registry.async_remove_device = MagicMock()
 
         def get_entity_registry(_hass: HomeAssistant) -> er.EntityRegistry:
@@ -626,11 +619,14 @@ class TestRemoveOrphanedDevices:
         def get_device_registry(_hass: HomeAssistant) -> dr.DeviceRegistry:
             return mock_device_registry
 
+        # Devices that belong to other config entries never come back from
+        # async_entries_for_config_entry, so the lookup returns nothing.
         _remove_orphaned_devices(
             mock_hass,
             mock_config_entry,
             entity_registry_getter=get_entity_registry,
             device_registry_getter=get_device_registry,
+            entries_for_config_entry_getter=lambda _reg, _entry_id: [],
         )
 
         mock_device_registry.async_remove_device.assert_not_called()
