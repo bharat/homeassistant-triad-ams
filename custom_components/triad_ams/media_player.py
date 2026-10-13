@@ -232,13 +232,14 @@ def _cleanup_stale_entities(
             registry.async_remove(ent.entity_id)
 
 
-def _remove_orphaned_devices(
+def _remove_orphaned_devices(  # noqa: PLR0913 - keyword-only registry getters exist for test injection
     hass: HomeAssistant,
     entry: ConfigEntry,
     *,
     entity_registry_getter: Any = None,
     device_registry_getter: Any = None,
     entries_for_device_getter: Any = None,
+    entries_for_config_entry_getter: Any = None,
 ) -> None:
     """Remove orphaned devices (those without any entities for this entry)."""
     if entity_registry_getter is None:
@@ -247,11 +248,14 @@ def _remove_orphaned_devices(
         device_registry_getter = dr.async_get
     if entries_for_device_getter is None:
         entries_for_device_getter = er.async_entries_for_device
+    if entries_for_config_entry_getter is None:
+        entries_for_config_entry_getter = dr.async_entries_for_config_entry
     registry = entity_registry_getter(hass)
     dev_reg = device_registry_getter(hass)
-    for device in list(dev_reg.devices.values()):
-        if entry.entry_id not in device.config_entries:
-            continue
+    # async_entries_for_config_entry replaces iterating dev_reg.devices and
+    # checking DeviceEntry.config_entries, both deprecated for removal in
+    # core 2027.9/2027.10.
+    for device in entries_for_config_entry_getter(dev_reg, entry.entry_id):
         if not entries_for_device_getter(
             registry, device.id, include_disabled_entities=True
         ):
