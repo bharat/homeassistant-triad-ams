@@ -185,6 +185,78 @@ class TestTriadAmsOutputVolume:
         await output.volume_up_step()
         # Should not raise
 
+    @pytest.mark.asyncio
+    async def test_small_step_updates_warm_cache_without_reads(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a small step moves the cached volume one unit, no reads."""
+        output._volume = 0.24
+        await output.volume_up_step(large=False)
+        assert output.volume == 0.25
+        await output.volume_down_step(large=False)
+        await output.volume_down_step(large=False)
+        assert output.volume == 0.23
+        mock_coordinator.get_output_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_small_step_clamps_to_range(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that the cached volume stays within 0..1 at the ends."""
+        output._volume = 1.0
+        await output.volume_up_step(large=False)
+        assert output.volume == 1.0
+        output._volume = 0.0
+        await output.volume_down_step(large=False)
+        assert output.volume == 0.0
+        mock_coordinator.get_output_volume.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_step_skips_post_command_refresh(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that refresh() right after a step sends nothing to the device."""
+        output._volume = 0.3
+        await output.volume_up_step(large=False)
+        await output.refresh()
+        mock_coordinator.get_output_volume.assert_not_called()
+        mock_coordinator.get_output_mute.assert_not_called()
+        mock_coordinator.get_output_source.assert_not_called()
+        assert output.volume == 0.31
+
+    @pytest.mark.asyncio
+    async def test_small_step_cold_cache_reads_volume_only(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that an unknown cached volume is read back once after a step."""
+        mock_coordinator.get_output_volume.return_value = 0.42
+        await output.volume_down_step(large=False)
+        mock_coordinator.get_output_volume.assert_called_once_with(1)
+        mock_coordinator.get_output_mute.assert_not_called()
+        mock_coordinator.get_output_source.assert_not_called()
+        assert output.volume == 0.42
+
+    @pytest.mark.asyncio
+    async def test_large_step_reads_volume_back(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a large step (unknown size) reads back where it landed."""
+        output._volume = 0.3
+        mock_coordinator.get_output_volume.return_value = 0.36
+        await output.volume_up_step(large=True)
+        mock_coordinator.get_output_volume.assert_called_once_with(1)
+        assert output.volume == 0.36
+
+    @pytest.mark.asyncio
+    async def test_failed_step_leaves_cache(
+        self, output: TriadAmsOutput, mock_coordinator: MagicMock
+    ) -> None:
+        """Test that a step the device rejected doesn't move the cached volume."""
+        output._volume = 0.3
+        mock_coordinator.volume_step_down.side_effect = OSError("Connection failed")
+        await output.volume_down_step(large=False)
+        assert output.volume == 0.3
+
 
 class TestTriadAmsOutputMaxVolume:
     """Test maximum-volume cap enforcement."""
