@@ -189,9 +189,6 @@ class TestEntityCleanup:
         # Create mock device
         device = MagicMock()
         device.id = "device_123"
-        device.config_entries = {"test_entry_123"}
-
-        device_registry.devices = {"device_123": device}
 
         # Use registry injection instead of patching
         _remove_orphaned_devices(
@@ -200,6 +197,7 @@ class TestEntityCleanup:
             entity_registry_getter=lambda _: entity_registry,
             device_registry_getter=lambda _: device_registry,
             entries_for_device_getter=lambda _registry, _device_id, **_: [],
+            entries_for_config_entry_getter=lambda _reg, _entry_id: [device],
         )
 
         # Should remove orphaned device
@@ -215,9 +213,6 @@ class TestEntityCleanup:
         # Create mock device
         device = MagicMock()
         device.id = "device_123"
-        device.config_entries = {"test_entry_123"}
-
-        device_registry.devices = {"device_123": device}
 
         # Use registry injection instead of patching
         _remove_orphaned_devices(
@@ -226,6 +221,7 @@ class TestEntityCleanup:
             entity_registry_getter=lambda _: entity_registry,
             device_registry_getter=lambda _: device_registry,
             entries_for_device_getter=lambda _registry, _device_id, **_: [MagicMock()],
+            entries_for_config_entry_getter=lambda _reg, _entry_id: [device],
         )
 
         # Should not remove device with entities

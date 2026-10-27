@@ -169,19 +169,10 @@ class TriadAmsOutput:
             return
         # A small step moves one device unit on the same 1/VOLUME_STEPS grid
         # the cap is quantized to, so it cannot overshoot from below the cap.
-        # A large step can, so read back where it landed and clamp if needed.
-        if cap < 1.0 and large:
-            try:
-                new_volume = await self.coordinator.get_output_volume(self.number)
-            except (OSError, TransientDeviceError):
-                _LOGGER.debug(
-                    "Could not read back volume after large step for output %d",
-                    self.number,
-                )
-                return
-            self._volume = new_volume
-            if new_volume > cap:
-                await self.set_volume(cap)
+        # A large step can, so clamp to where it landed if needed.
+        landed = await self._record_step(1, large=large)
+        if landed and large and self._volume is not None and self._volume > cap:
+            await self.set_volume(cap)
 
     async def volume_down_step(self, *, large: bool = False) -> None:
         """Step the volume down (optionally large step)."""
@@ -189,6 +180,36 @@ class TriadAmsOutput:
             await self.coordinator.volume_step_down(self.number, large=large)
         except (OSError, TransientDeviceError):
             _LOGGER.exception("Failed to step volume down for output %d", self.number)
+            return
+        await self._record_step(-1, large=large)
+
+    async def _record_step(self, direction: int, *, large: bool) -> bool:
+        """
+        Update the cached volume after a step, without a full refresh.
+
+        A small step moves exactly one unit on the 1/VOLUME_STEPS grid, so a
+        warm cache is updated locally. A large step (size not known here) or a
+        cold cache reads back the volume only. Marking the command time keeps
+        the entity's post-command refresh() (volume, mute and source: three
+        more round trips) from running, so a small step costs one command.
+        The rolling poll still reconciles with the device afterwards.
+
+        Returns True when the cached volume reflects the device after the step.
+        """
+        self._last_command_time = time.monotonic()
+        if not large and self._volume is not None:
+            steps = round(self._volume * VOLUME_STEPS) + direction
+            self._volume = max(0, min(steps, VOLUME_STEPS)) / VOLUME_STEPS
+            return True
+        try:
+            self._volume = await self.coordinator.get_output_volume(self.number)
+        except (OSError, TransientDeviceError):
+            _LOGGER.debug(
+                "Could not read back volume after step for output %d",
+                self.number,
+            )
+            return False
+        return True
 
     @property
     def is_on(self) -> bool:
