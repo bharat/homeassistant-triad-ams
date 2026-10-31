@@ -45,6 +45,9 @@ Headless read-only sweep (no prompts; writes the session log and exits):
 
     uv run python triad_matrix_tester.py --host 192.168.1.50 --model AMS24 --sweep
 
+Add ``--outputs`` / ``--inputs`` (1-based lists such as ``17-24``, ``1,3,5-7``
+or ``none``) to limit which channels the sweep queries.
+
 Any of --host/--port/--model/--log given on the command line skips the
 matching startup prompt in interactive mode too.
 """
@@ -53,21 +56,29 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 import socket
 import struct
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 DEFAULT_PORT = 52000
 RECV_TIMEOUT = 2.0  # max wait for a reply (or the rest of one) to arrive
 PAD_TIMEOUT = 0.05  # wait for NUL padding / stale bytes (integration uses 50 ms)
 NUM_CHANNELS = 24  # overwritten at startup from the selected model
 MODEL_CHANNELS = {"AMS8": 8, "AMS16": 16, "AMS24": 24}
+MAX_CHANNELS = max(MODEL_CHANNELS.values())
 MODEL = "AMS24"  # overwritten at startup
 SWEEP_DELAY = 0.15  # seconds between sweep frames (integration uses 150 ms)
 ROUTE_DELAY = 0.2  # routing wants ~100 ms before the next command
 LOG_PATH: str | None = None
+SWEEP_OUTPUTS: set[int] | None = None  # 1-based outputs to sweep; None = all
+SWEEP_INPUTS: set[int] | None = None  # 1-based inputs to sweep; None = all
 IPV4_OCTET_COUNT = 4
 IPV4_OCTET_MAX = 255
 ASCII_PRINTABLE_MIN = 32
@@ -1055,6 +1066,52 @@ INPUT_QUERIES = [
 ]
 
 
+def parse_channels(spec: str) -> set[int]:
+    """Parses a 1-based channel list such as ``1-8``, ``1,3,5-7`` or ``none``."""
+    if spec.strip().lower() == "none":
+        return set()
+    channels: set[int] = set()
+    for part in spec.split(","):
+        lo, dash, hi = (piece.strip() for piece in part.partition("-"))
+        if not lo.isdecimal() or (dash and not hi.isdecimal()):
+            msg = f"invalid channel list {spec!r} (use e.g. 1-8, 1,3,5-7 or none)"
+            raise argparse.ArgumentTypeError(msg)
+        first, last = int(lo), int(hi or lo)
+        if last < first:
+            msg = f"range {part.strip()!r} is reversed (did you mean {last}-{first}?)"
+            raise argparse.ArgumentTypeError(msg)
+        if first < 1 or last > MAX_CHANNELS:
+            msg = f"{part.strip()!r} is outside channels 1-{MAX_CHANNELS}"
+            raise argparse.ArgumentTypeError(msg)
+        channels.update(range(first, last + 1))
+    return channels
+
+
+def format_channels(channels: set[int]) -> str:
+    """Formats a channel set compactly, e.g. {1, 2, 3, 7} -> ``1-3,7``."""
+    runs: list[str] = []
+    for _, run in itertools.groupby(
+        enumerate(sorted(channels)), key=lambda pair: pair[1] - pair[0]
+    ):
+        values = [n for _, n in run]
+        runs.append(str(values[0]) if len(values) == 1 else f"{values[0]}-{values[-1]}")
+    return ",".join(runs) or "none"
+
+
+def sweep_channels() -> tuple[set[int], set[int]]:
+    """Returns the 1-based (outputs, inputs) the sweep should query."""
+    every = set(range(1, NUM_CHANNELS + 1))
+    outputs = every if SWEEP_OUTPUTS is None else SWEEP_OUTPUTS
+    inputs = every if SWEEP_INPUTS is None else SWEEP_INPUTS
+    return outputs, inputs
+
+
+def sweep_summary() -> str:
+    """Describes the sweep selection, e.g. ``outputs 1-13 and inputs 1-4``."""
+    outputs, inputs = sweep_channels()
+    return f"outputs {format_channels(outputs)} and inputs {format_channels(inputs)}"
+
+
 def exchange(
     conn: TriadConn,
     label: str,
@@ -1083,33 +1140,66 @@ def exchange(
     return received
 
 
-def run_readonly_sweep(conn: TriadConn) -> list[str]:
-    """Queries every output and input. Changes nothing on the unit.
+def run_readonly_sweep(conn: TriadConn) -> bool:
+    """Queries the selected outputs and inputs (all by default).
+
+    Changes nothing on the unit. Ctrl-C or a connection error stops the sweep
+    early, but the replies collected so far are still summarised.
 
     Returns:
-        Labels of the queries that got no reply.
+        False if the unit answered none of the channel queries (or, with no
+        channels selected, none of the power/firmware/MAC queries).
     """
-    print(f"\nRead-only sweep of {NUM_CHANNELS} outputs and inputs...")
-    exchange(conn, "Power status", cmd_get_power_status(), SWEEP_DELAY)
-    exchange(conn, "Firmware version", cmd_get_firmware_version(), SWEEP_DELAY)
-    # Sent straight after the firmware query on purpose (see its comment).
-    mac = exchange(
-        conn, "MAC address", cmd_get_mac_address(), SWEEP_DELAY, retry_empty=True
-    )
-    silent: list[str] = []
-    for n in range(1, NUM_CHANNELS + 1):
-        channel_queries = [
-            (f"Out {n}: {name}", query(grp, b1, b2, n - 1))
+    outputs, inputs = sweep_channels()
+    print(f"\nRead-only sweep of {sweep_summary()}...")
+    # The MAC query is sent straight after the firmware query on purpose (see
+    # its comment). Power and firmware are sent once; MAC and every channel
+    # query retry an empty reply once (issue #102).
+    system = [
+        ("Power status", cmd_get_power_status(), False),
+        ("Firmware version", cmd_get_firmware_version(), False),
+        ("MAC address", cmd_get_mac_address(), True),
+    ]
+    channel: list[tuple[str, bytes, bool]] = []
+    for n in sorted(outputs | inputs):
+        channel += [
+            (f"Out {n}: {name}", query(grp, b1, b2, n - 1), True)
             for name, grp, b1, b2 in OUTPUT_QUERIES
+            if n in outputs
         ] + [
-            (f"In {n}: {name}", query(grp, b1, b2, n - 1))
+            (f"In {n}: {name}", query(grp, b1, b2, n - 1), True)
             for name, grp, b1, b2 in INPUT_QUERIES
+            if n in inputs
         ]
-        for label, data in channel_queries:
-            if not exchange(conn, label, data, SWEEP_DELAY, retry_empty=True):
+    queries = system + channel
+    silent: list[str] = []
+    done = 0
+    try:
+        for label, data, retry in queries:
+            if not exchange(conn, label, data, SWEEP_DELAY, retry_empty=retry):
                 silent.append(label)
+            done += 1
+    except (KeyboardInterrupt, OSError):
+        print(
+            f"\nSweep stopped after {done} of {len(queries)} queries:"
+            f" {queries[done][0]!r} got no answer and"
+            f" {len(queries) - done - 1} were never sent."
+        )
+        report_sweep(silent, outputs, inputs)
+        raise
     print("\nSweep done.")
-    if not mac:
+    report_sweep(silent, outputs, inputs)
+    expected = channel or system
+    answered = any(label not in silent for label, _data, _retry in expected)
+    if not answered:
+        which = "channel queries" if channel else "queries"
+        print(f"  No {which} were answered - check host/model/firmware.")
+    return answered
+
+
+def report_sweep(silent: list[str], outputs: set[int], inputs: set[int]) -> None:
+    """Prints which sweep queries got no reply, plus the top-bank hint."""
+    if "MAC address" in silent:
         print(
             "  MAC address query got no reply. It follows the firmware query,"
             " whose length byte is a known quirk - this unit may be reading it"
@@ -1120,14 +1210,22 @@ def run_readonly_sweep(conn: TriadConn) -> list[str]:
         for label in silent:
             print(f"   - {label}")
     else:
-        print("  Every query got a reply.")
-    low = NUM_CHANNELS - 7
-    if low > 1:
-        print(
-            f"  Check the log: do Out/In {low}-{NUM_CHANNELS} answer the same"
-            " way as the lower channels?"
-        )
-    return silent
+        print("  Every completed query got a reply.")
+    # Only worth asking when both the top bank and some lower channel were
+    # swept, so the log has something to compare against.
+    top = set(range(NUM_CHANNELS - 7, NUM_CHANNELS + 1))
+    swept = outputs | inputs
+    if not (swept & top and swept - top):
+        return
+    sides = [
+        f"{side} {format_channels(channels & top)}"
+        for side, channels in (("outputs", outputs), ("inputs", inputs))
+        if channels & top
+    ]
+    print(
+        f"  Check the log: do top-bank {' and '.join(sides)} answer the same"
+        " way as the lower channels?"
+    )
 
 
 def run_route_test(conn: TriadConn) -> None:
@@ -1208,8 +1306,8 @@ def log_note(note: str) -> None:
             fh.write(f"NOTE: {note}\n\n")
 
 
-VALIDATION = [
-    ("Read-only sweep of all outputs/inputs (safe)", run_readonly_sweep),
+VALIDATION: list[tuple[str | Callable[[], str], Callable[[TriadConn], object]]] = [
+    (lambda: f"Read-only sweep of {sweep_summary()} (safe)", run_readonly_sweep),
     ("Route + disconnect test on one output (writes)", run_route_test),
     ("Trigger byte probe 0x00-0x03 (writes, interactive)", run_trigger_probe),
 ]
@@ -1220,7 +1318,7 @@ def run_validation(conn: TriadConn) -> None:
     while True:
         print(f"\n--- {MODEL} validation ---")
         for idx, (label, _fn) in enumerate(VALIDATION, start=1):
-            print(f"  {idx}. {label}")
+            print(f"  {idx}. {label() if callable(label) else label}")
         print("  0. Back")
         choice = prompt_int("Select", 0, len(VALIDATION))
         if choice == 0:
@@ -1329,6 +1427,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="run the read-only sweep with no prompts, then exit",
     )
+    parser.add_argument(
+        "--outputs",
+        type=parse_channels,
+        help="outputs the sweep queries, 1-based (e.g. 1-8, 1,3,5-7, none;"
+        " default: all)",
+    )
+    parser.add_argument(
+        "--inputs",
+        type=parse_channels,
+        help="inputs the sweep queries, 1-based (e.g. 1-8, 1,3,5-7, none;"
+        " default: all)",
+    )
     return parser.parse_args(argv)
 
 
@@ -1370,6 +1480,46 @@ def resolve_log(args: argparse.Namespace, model: str) -> str | None:
     return None if path == "-" else path
 
 
+def channel_range_errors(args: argparse.Namespace) -> list[str]:
+    """Returns why --outputs/--inputs don't fit the model (empty if they do)."""
+    return [
+        f"{flag}: {MODEL} only has channels 1-{NUM_CHANNELS}"
+        for flag, channels in (("--outputs", args.outputs), ("--inputs", args.inputs))
+        if channels and max(channels) > NUM_CHANNELS
+    ]
+
+
+def fit_channels(args: argparse.Namespace) -> bool:
+    """Sets the sweep selection from --outputs/--inputs for the chosen model.
+
+    With ``--sweep`` a channel the model lacks is an error (returns False).
+    Interactively the flags only affect the sweep, so a bad range shouldn't
+    end the session: those channels are dropped with a warning instead.
+    """
+    global SWEEP_OUTPUTS, SWEEP_INPUTS
+
+    if args.sweep and (errors := channel_range_errors(args)):
+        for error in errors:
+            print(f"{error}.", file=sys.stderr)
+        return False
+
+    def fit(flag: str, channels: set[int] | None) -> set[int] | None:
+        if channels is None:
+            return None
+        kept = {n for n in channels if n <= NUM_CHANNELS}
+        if kept != channels:
+            print(
+                f"Warning: {flag}: {MODEL} only has channels 1-{NUM_CHANNELS};"
+                f" the sweep will query {format_channels(kept)} on that side.",
+                file=sys.stderr,
+            )
+        return kept
+
+    SWEEP_OUTPUTS = fit("--outputs", args.outputs)
+    SWEEP_INPUTS = fit("--inputs", args.inputs)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point: sets up the connection, then runs the menu or a sweep."""
     global NUM_CHANNELS, MODEL, LOG_PATH
@@ -1393,6 +1543,8 @@ def main(argv: list[str] | None = None) -> int:
     port = resolve_port(args)
     MODEL = resolve_model(args)
     NUM_CHANNELS = MODEL_CHANNELS[MODEL]
+    if not fit_channels(args):
+        return 2
     LOG_PATH = resolve_log(args, MODEL)
     if LOG_PATH:
         print(f"Logging every frame to {LOG_PATH}")
@@ -1405,23 +1557,23 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"Connected to {host}:{port} as {MODEL}")
 
+    status = 0
     try:
         if args.sweep:
-            silent = run_readonly_sweep(conn)
-            total = 3 + NUM_CHANNELS * (len(OUTPUT_QUERIES) + len(INPUT_QUERIES))
-            if len(silent) >= total - 3:
-                print("No channel queries were answered - check model/firmware.")
-                return 1
+            if not run_readonly_sweep(conn):
+                status = 1
         else:
             run_menu(conn)
     except (KeyboardInterrupt, EOFError):
         print("\nExiting.")
+        # 130 is the usual Ctrl-C exit code: a stopped sweep is incomplete.
+        status = 130 if args.sweep else 0
     except OSError as exc:
         print(f"Connection error: {exc}")
-        return 1
+        status = 1
     finally:
         conn.close()
-    return 0
+    return status
 
 
 if __name__ == "__main__":
