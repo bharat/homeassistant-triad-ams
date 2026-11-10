@@ -482,7 +482,8 @@ class TestTriadAmsMediaPlayerLinkSubscription:
             return_value=unsub_func,
         ):
             media_player.hass = mock_hass
-            media_player._input_links = {1: "media_player.input1"}
+            # Options persist input link keys as strings
+            media_player._input_links = {"1": "media_player.input1"}
             media_player.output.source = 1
 
             media_player._update_link_subscription()
@@ -700,6 +701,7 @@ class TestCleanupStaleEntities:
         _cleanup_stale_entities(
             MagicMock(),
             entry,
+            [],
             [active_output],
             entity_registry_getter=lambda _hass: registry,
         )

@@ -15,6 +15,13 @@ turn_on_with_source:
             supported_features:
               - media_player.MediaPlayerEntityFeature.PLAY
               - media_player.MediaPlayerEntityFeature.PLAY_MEDIA
+get_groupable_players:
+  description: "Get all speaker entities that can group with this input."
+  target:
+    entity:
+      domain: media_player
+      integration: triad_ams
+      device_class: receiver
 set_protocol_debug:
   description: "Enable or disable protocol-level logging for all Triad AMS entries."
   fields:

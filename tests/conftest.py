@@ -14,14 +14,23 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 
-from custom_components.triad_ams.coordinator import (
+warnings.filterwarnings(
+    "ignore",
+    message=(
+        "Inheritance class HomeAssistantApplication from web.Application is discouraged"
+    ),
+    category=DeprecationWarning,
+)
+
+from homeassistant.config_entries import ConfigEntry  # noqa: E402
+from homeassistant.core import HomeAssistant  # noqa: E402
+
+from custom_components.triad_ams.coordinator import (  # noqa: E402
     TriadCoordinator,
     TriadCoordinatorConfig,
 )
-from custom_components.triad_ams.models import TriadAmsOutput
+from custom_components.triad_ams.models import TriadAmsOutput  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
