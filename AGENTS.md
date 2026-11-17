@@ -60,7 +60,7 @@ Quality scale: currently **Bronze** in `manifest.json`, but `custom_components/t
     ├── workflows/
     │   ├── lint.yml                # Ruff check + format check on push/PR to main
     │   ├── validate.yml            # Hassfest + HACS validation + full pytest suite
-    │   ├── release.yml             # Tag `v*` → GitHub release with auto-generated notes
+    │   ├── release.yml             # Tag `v*` on main → verify tag, then GitHub release with auto-generated notes
     │   └── dependabot-auto-merge.yml  # Auto-approves & enables auto-merge for dependabot PRs
     ├── dependabot.yml              # Daily updates: devcontainers, github-actions, pip (excl. homeassistant)
     └── ISSUE_TEMPLATE/             # bug + feature_request forms
@@ -100,7 +100,7 @@ CI mirrors this:
 
 - **Lint** workflow: `ruff check .` and `ruff format . --check`
 - **Validate** workflow: Hassfest, HACS validation (with `ignore: brands`), and the full pytest suite — also runs nightly on cron
-- **Release** workflow: triggered by pushing a `v*` tag
+- **Release** workflow: triggered only by pushing a `v*` tag that points at a commit on `main`
 
 Dependabot is configured for `devcontainers`, `github-actions`, and `pip` on a daily cadence (with `homeassistant` itself pinned via the `hacs.json` minimum). Dependabot PRs are auto-approved and auto-merged by `dependabot-auto-merge.yml` once checks pass.
 
@@ -143,7 +143,9 @@ Build the GitHub release body in three parts:
 
 End with `**Full Changelog**: <compare link>` (GitHub auto-generates).
 
-The `release.yml` workflow fires on `v*` tag push and creates the release with `generate_release_notes: true` — that gives you a starting draft. Rewrite the body in the three-part shape above before publishing.
+The `release.yml` workflow runs only when a `v*` tag is pushed; there is no manual trigger. A read-only `verify` job checks that the tag is a CalVer version, that the checked-out commit is the tagged commit, and that it is already on `main`. A separate `publish` job then creates the release with `gh release create --verify-tag --generate-notes` (or reuses a release that already exists for the tag). No files are attached; HACS installs from the tagged source. The generated notes give you a starting draft: rewrite the body in the three-part shape above after the workflow finishes.
+
+Releases are immutable and are built only from tags on `main`. Never move or re-push a tag, and never replace anything on a published release. A bad release is fixed by merging the fix to `main` and pushing a new tag (use a `.N` suffix, e.g. `v2025.12.31.1`, for a second release on the same day).
 
 ## What NOT to touch
 

@@ -1,43 +1,99 @@
 name: Release
 
-permissions:
-  contents: write
+# Creates the GitHub release for a v* tag. HACS installs this integration
+# from the tagged source, so no files are attached to the release.
+#
+# Two jobs, so the token that can write releases never sits next to a
+# checkout of the code: `verify` checks out the tag read-only and verifies
+# it; `publish` only creates the release.
+# Releases are immutable: they are only ever built from a pushed tag on
+# main and there is no manual trigger. A bad release is fixed by tagging a
+# new version.
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g., v2025.9.13)'
-        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  create_release:
-    name: Create GitHub Release
+  verify:
+    name: Verify tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
       - name: Determine tag
         id: vars
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          if ! [[ "$TAG" == v* && "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "Tag $TAG is not a vYYYY.M.D[.N] version" >&2
+            exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+      # Fully qualified ref: an unqualified name would resolve a branch of
+      # the same name before the tag.
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          tag_name: ${{ steps.vars.outputs.tag }}
-          name: Triad AMS ${{ steps.vars.outputs.tag }}
-          generate_release_notes: true
+          ref: refs/tags/${{ steps.vars.outputs.tag }}
+          persist-credentials: false
+
+      - name: Verify the tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          tagged=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          pushed=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          if [[ "$head" != "$tagged" || "$head" != "$pushed" ]]; then
+            echo "Checked out $head, but $TAG is $tagged and the push was $pushed" >&2
+            exit 1
+          fi
+          # Only commits already on main are released. The checkout is
+          # shallow; unshallow while fetching main so the ancestry walk
+          # never stops at a missing parent.
+          git fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$head" origin/main; then
+            echo "$TAG ($head) is not on main" >&2
+            exit 1
+          fi
+
+  publish:
+    name: Publish release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Created as a draft with generated notes, then published. A release
+      # that already exists (one created by hand with its notes) is reused.
+      # --verify-tag makes gh refuse to create a tag that is not already
+      # in the repository.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; reusing it"
+          else
+            gh release create "$TAG" --verify-tag --draft --generate-notes \
+              --title "Triad AMS $TAG"
+          fi
+          gh release edit "$TAG" --draft=false
