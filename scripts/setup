@@ -4,9 +4,7 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-python3 -m pip install --upgrade pip -r requirements.txt
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo BINDIR=/usr/local/bin bash
-pre-commit install
+sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg libpcap-dev libturbojpeg0
 
-curl -fsSL https://cursor.com/install | bash
-curl -fsSL https://claude.ai/install.sh | bash
+python3 -m pip install --upgrade pip -r requirements.txt
+pre-commit install
